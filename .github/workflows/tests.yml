@@ -2,17 +2,73 @@ name: Tests
 
 on:
   push:
+    branches: ["**"]
   pull_request:
+  schedule:
+    - cron: "0 0 * * 1"  # Monday 00:00 UTC — weekly regression check
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-  test:
+  unit-tests:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest          # macOS 26
+          - xcode-27              # macOS 27 (Xcode 27 image, arm64)
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: Install dependencies
+        run: uv sync --frozen --group dev
+
+      - name: Run unit tests
+        run: uv run pytest -q -m "not real_model and not gpu"
+
+  integration-tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      - name: Install
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Cache Hugging Face models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: ${{ runner.os }}-hf-esm2-8m
+          restore-keys: |
+            ${{ runner.os }}-hf-
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: Install dependencies
         run: uv sync --frozen --group dev
-      - name: Lint
-        run: uv run ruff check src tests
-      - name: Test
-        run: uv run pytest -q
+
+      - name: Run integration tests
+        run: uv run pytest -q -m "real_model"
