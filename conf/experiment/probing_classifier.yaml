@@ -1,5 +1,5 @@
 module: biointerp.experiments.probing_classifier
-model_key: true
+model_key: false
 args:
 - --n
 - '2000'
