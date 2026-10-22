@@ -10,9 +10,12 @@ def test_defaults_resolve():
 
 
 def test_model_key_flag_toggle():
-    cfg = load_config("probing_classifier", "esm2_650m", "swissprot")
-    argv = build_argv(cfg, {"n": "100"})
-    assert argv[:3] == ["--n", "2000", "--model-key"]
+    with_key = load_config("extract", "esm2_8m", "swissprot")
+    assert build_argv(with_key)[:2] == ["--model-key", "esm2_8m"]
+
+    probing = load_config("probing_classifier", "esm2_650m", "swissprot")
+    assert "--model-key" not in build_argv(probing)
+
     ladder = load_config("ladder_scaling", "esm2_8m")
     assert "--model-key" not in build_argv(ladder)
 
