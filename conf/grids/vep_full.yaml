@@ -1,0 +1,10 @@
+runs:
+  - experiment: biointerp/experiments/vep_proteingym.py
+    model_key: esm2_650m
+    args: ["--assay", "PAI1_HUMAN_Huttinger_2021", "--n-mutations", "1000", "--device", "cpu"]
+  - experiment: biointerp/experiments/vep_proteingym.py
+    model_key: esm2_650m
+    args: ["--assay", "S22A1_HUMAN_Yee_2023_activity", "--n-mutations", "1000", "--device", "cpu"]
+  - experiment: biointerp/experiments/vep_proteingym.py
+    model_key: esm2_650m
+    args: ["--assay", "HIS7_YEAST_Pokusaeva_2019", "--n-mutations", "1000", "--device", "cpu"]

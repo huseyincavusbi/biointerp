@@ -1,0 +1,7 @@
+name: proteingym
+source: huggingface
+repo: OATML-Markslab/ProteinGym_v1
+file_pattern: DMS_substitutions/train-0000{shard}-of-00005.parquet
+shards: [0, 1, 2, 3, 4]
+n_mutations: 200
+label: DMS_score_bin

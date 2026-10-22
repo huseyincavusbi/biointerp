@@ -1,0 +1,13 @@
+runs:
+  - experiment: biointerp/experiments/extract.py
+    model_key: esm2_8m
+    args: ["--n", "2000"]
+  - experiment: biointerp/experiments/extract.py
+    model_key: esm2_35m
+    args: ["--n", "2000"]
+  - experiment: biointerp/experiments/extract.py
+    model_key: esm2_150m
+    args: ["--n", "2000"]
+  - experiment: biointerp/experiments/extract.py
+    model_key: esm2_650m
+    args: ["--n", "2000"]

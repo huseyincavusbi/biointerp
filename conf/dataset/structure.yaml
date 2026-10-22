@@ -1,0 +1,4 @@
+name: structure
+source: alphafold_db
+plddt: true
+# Positions/sequences come from the swissprot slice; no structural data is committed.

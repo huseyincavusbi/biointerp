@@ -1,0 +1,4 @@
+runs:
+  - experiment: biointerp/experiments/cross_model.py
+    model_key: esmc_6b
+    args: ["--n", "2000", "--dtype", "bf16", "--device-map", "auto"]

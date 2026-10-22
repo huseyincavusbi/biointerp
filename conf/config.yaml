@@ -1,0 +1,9 @@
+# Bio-Interp base configuration (plain YAML; no Hydra).
+defaults:
+  model: esm2_650m
+  dataset: swissprot
+  experiment: probing_classifier
+
+seed: 0
+device: auto
+output_dir: outputs

@@ -1,0 +1,3 @@
+module: biointerp.experiments.viability_scorer
+model_key: false
+args: []

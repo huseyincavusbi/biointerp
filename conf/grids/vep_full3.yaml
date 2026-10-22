@@ -1,0 +1,10 @@
+runs:
+  - experiment: biointerp/experiments/vep_proteingym.py
+    model_key: esm2_650m
+    args: ["--shard", "1", "--assay", "MSH2_HUMAN_Jia_2020", "--n-mutations", "1000", "--device", "cpu"]
+  - experiment: biointerp/experiments/vep_proteingym.py
+    model_key: esm2_650m
+    args: ["--shard", "1", "--assay", "MTHR_HUMAN_Weile_2021", "--n-mutations", "1000", "--device", "cpu"]
+  - experiment: biointerp/experiments/vep_proteingym.py
+    model_key: esm2_650m
+    args: ["--shard", "1", "--assay", "PPARG_HUMAN_Majithia_2016", "--n-mutations", "1000", "--device", "cpu"]

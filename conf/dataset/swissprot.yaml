@@ -1,0 +1,9 @@
+name: swissprot
+source: uniprot
+query: "reviewed:true AND length:[50 TO 500]"
+n: 2000
+min_len: 50
+max_len: 500
+seed: 0
+# Data is never committed. Override with BIOINTERP_DATA_DIR if needed.
+local_path: data/swissprot_n2000_len50-500_seed0.fasta

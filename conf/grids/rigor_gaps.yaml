@@ -1,0 +1,10 @@
+runs:
+  - experiment: biointerp/experiments/full_layer_patching.py
+    model_key: esm2_650m
+    args: ["--donor-n", "300", "--eval-n", "300"]
+  - experiment: biointerp/experiments/safety_neurons.py
+    model_key: esm2_650m
+    args: ["--calib-n", "500", "--eval-n", "300", "--ks", "25,100"]
+  - experiment: biointerp/experiments/cluster_ablation.py
+    model_key: esm2_650m
+    args: ["--top-n", "1000", "--eval-n", "300"]

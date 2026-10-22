@@ -1,0 +1,4 @@
+runs:
+  - experiment: biointerp/experiments/structure_mapping.py
+    model_key: esm2_650m
+    args: ["--n-seqs", "30", "--max-len", "250"]
