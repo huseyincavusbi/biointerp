@@ -7,7 +7,7 @@ name = "biointerp"
 version = "0.1.0"
 description = "Mechanistic interpretability experiments for protein language models"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Huseyin Cavus", email = "huseyincavus@proton.me" }]
 keywords = ["protein-language-models", "interpretability", "error-neurons", "cett"]
@@ -25,10 +25,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-esm = ["esm>=3.4.1"]
+esm = ["esm>=3.4.1; python_version >= '3.12'"]
 generative = ["multimolecule"]
 evolution = ["metapredict"]
+
+[dependency-groups]
 dev = ["pytest>=8.0", "ruff>=0.4", "pre-commit>=4.0"]
+docs = ["mkdocs>=1.5.0", "mkdocs-material>=9.4.0", "mkdocstrings[python]>=0.23.0"]
 
 [project.scripts]
 biointerp = "biointerp.cli:main"
@@ -38,6 +41,11 @@ packages = ["src/biointerp"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "real_model: requires downloading a real model from the Hugging Face Hub (skipped by default)",
+    "gpu: requires a CUDA/MPS accelerator (skipped by default)",
+    "slow: long-running test",
+]
 
 [tool.ruff]
 line-length = 100
