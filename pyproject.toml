@@ -1,0 +1,48 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "biointerp"
+version = "0.1.0"
+description = "Mechanistic interpretability experiments for protein language models"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "Huseyin Cavus", email = "huseyincavus@proton.me" }]
+keywords = ["protein-language-models", "interpretability", "error-neurons", "cett"]
+dependencies = [
+    "numpy>=1.24",
+    "torch>=2.0",
+    "scikit-learn>=1.3",
+    "scipy>=1.10",
+    "transformers>=4.57",
+    "huggingface-hub>=0.20",
+    "pandas>=2.0",
+    "pyarrow>=14.0",
+    "PyYAML>=6.0",
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+esm = ["esm>=3.4.1"]
+generative = ["multimolecule"]
+evolution = ["metapredict"]
+dev = ["pytest>=8.0", "ruff>=0.4", "pre-commit>=4.0"]
+
+[project.scripts]
+biointerp = "biointerp.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/biointerp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = ["E501", "E741"]
