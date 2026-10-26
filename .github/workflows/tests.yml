@@ -26,6 +26,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Display system information
+        run: |
+          echo "OS Information:"
+          uname -a
+          echo ""
+          echo "CPU Information:"
+          nproc 2>/dev/null || sysctl -n hw.ncpu
+          echo "CPU Details:"
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            sysctl -n machdep.cpu.brand_string 2>/dev/null
+            echo "CPU cores: $(sysctl -n hw.ncpu)"
+          else
+            lscpu | head -10
+          fi
+          echo ""
+          echo "Memory Information:"
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            vm_stat | head -5
+          else
+            free -h | awk '/^Mem:/{print "Memory: " $2}'
+            free -h | awk '/^Swap:/{print "Swap: " $2}'
+          fi
+
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
@@ -47,6 +70,29 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Display system information
+        run: |
+          echo "OS Information:"
+          uname -a
+          echo ""
+          echo "CPU Information:"
+          nproc 2>/dev/null || sysctl -n hw.ncpu
+          echo "CPU Details:"
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            sysctl -n machdep.cpu.brand_string 2>/dev/null
+            echo "CPU cores: $(sysctl -n hw.ncpu)"
+          else
+            lscpu | head -10
+          fi
+          echo ""
+          echo "Memory Information:"
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            vm_stat | head -5
+          else
+            free -h | awk '/^Mem:/{print "Memory: " $2}'
+            free -h | awk '/^Swap:/{print "Swap: " $2}'
+          fi
 
       - name: Set up Python 3.13
         uses: actions/setup-python@v5
