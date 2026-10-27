@@ -15,6 +15,18 @@ def test_univariate_auroc_inverse():
     assert univariate_auroc(x, y)[0] == 0.0
 
 
+def test_univariate_auroc_ties_are_chance():
+    x = np.ones((4, 1))
+    y = np.array([0, 1, 0, 1])
+    assert univariate_auroc(x, y)[0] == 0.5
+
+
+def test_univariate_auroc_partial_ties():
+    x = np.array([[0.0], [1.0], [1.0], [2.0]])
+    y = np.array([0, 0, 1, 1])
+    assert univariate_auroc(x, y)[0] == 0.875
+
+
 def test_split_by_protein_has_no_leakage():
     protein = np.array([0, 0, 1, 1, 2, 2, 3, 3])
     train, test = split_by_protein(protein, test_frac=0.25, seed=0)
