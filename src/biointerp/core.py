@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 
 import numpy as np
+from scipy.stats import rankdata
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BIOINTERP_DIR = REPO_ROOT
@@ -34,7 +35,8 @@ def univariate_auroc(x, y, chunk: int = 20000):
     nneg = len(y) - npos
     for s in range(0, x.shape[1], chunk):
         e = min(s + chunk, x.shape[1])
-        r = x[:, s:e].argsort(axis=0).argsort(axis=0) + 1.0
+        # Average ranks for ties, so a tied positive/negative pair contributes 0.5.
+        r = rankdata(x[:, s:e], axis=0)
         out[s:e] = (r[y == 1].sum(0) - npos * (npos + 1) / 2) / (npos * nneg)
     return out
 
