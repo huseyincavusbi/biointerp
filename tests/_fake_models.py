@@ -224,6 +224,7 @@ class FakeGpt2Model(nn.Module):
         n_layers: int = 2,
         seed: int = 0,
         eos_bias: float = -100.0,
+        special_bias: float = -100.0,
     ):
         super().__init__()
         torch.manual_seed(seed)
@@ -234,6 +235,7 @@ class FakeGpt2Model(nn.Module):
         )
         self.lm_head = nn.Linear(hidden, VOCAB)
         self.eos_bias = eos_bias
+        self.special_bias = special_bias
         self.config = SimpleNamespace(n_embd=hidden, n_layer=n_layers)
 
     def forward(self, input_ids, past_key_values=None, use_cache=True, **kwargs):
@@ -241,6 +243,7 @@ class FakeGpt2Model(nn.Module):
         for layer in self.transformer.h:
             x = layer(x)
         logits = self.lm_head(x)
+        logits[..., :EOS_ID] += self.special_bias
         logits[..., EOS_ID] += self.eos_bias
         return SimpleNamespace(logits=logits, past_key_values=past_key_values)
 
