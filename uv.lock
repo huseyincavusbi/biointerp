@@ -264,6 +264,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+analysis = [
+    { name = "matplotlib" },
+]
 dnabert = [
     { name = "einops" },
     { name = "triton", marker = "sys_platform == 'linux'" },
@@ -290,6 +293,7 @@ requires-dist = [
     { name = "einops", marker = "extra == 'dnabert'" },
     { name = "esm", marker = "python_full_version >= '3.12' and extra == 'esm'", specifier = ">=3.4.1" },
     { name = "huggingface-hub", specifier = ">=0.20" },
+    { name = "matplotlib", marker = "extra == 'analysis'", specifier = ">=3.8" },
     { name = "metapredict", marker = "extra == 'evolution'" },
     { name = "multimolecule", marker = "extra == 'generative'" },
     { name = "numpy", specifier = ">=1.24" },
@@ -303,7 +307,7 @@ requires-dist = [
     { name = "transformers", specifier = ">=4.57" },
     { name = "triton", marker = "sys_platform == 'linux' and extra == 'dnabert'" },
 ]
-provides-extras = ["esm", "dnabert", "generative", "evolution"]
+provides-extras = ["esm", "dnabert", "generative", "evolution", "analysis"]
 
 [package.metadata.requires-dev]
 dev = [

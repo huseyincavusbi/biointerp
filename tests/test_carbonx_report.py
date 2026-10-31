@@ -2,6 +2,7 @@ import json
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from biointerp.experiments import carbonx_report
 
@@ -47,3 +48,39 @@ def test_build_report_writes_tables(tmp_path):
     assert set(answers["condition"]) == {"dna_only", "correct_gene"}
     cett = pd.read_csv(run_dir / "report" / "cett_norms.csv")
     assert set(cett["layer"]) == {0, 1}
+
+
+def test_build_report_writes_plots(tmp_path):
+    pytest.importorskip("matplotlib")
+    run_dir = tmp_path / "run"
+    features = run_dir / "features"
+    features.mkdir(parents=True)
+    (run_dir / "summary.json").write_text(json.dumps({"config": {"layers": [0]}}))
+    path = features / "0_dna_only.npz"
+    np.savez_compressed(
+        path,
+        cett=np.ones(4),
+        attention_dna=np.ones((1, 1, 3)),
+    )
+    (run_dir / "records.jsonl").write_text(
+        json.dumps(
+            {
+                "variant": 0,
+                "chrom": "1",
+                "label": 1,
+                "condition": "dna_only",
+                "parsed": {"label": "benign"},
+                "p_pathogenic": 0.2,
+                "features": str(path),
+            }
+        )
+        + "\n"
+    )
+
+    summary = carbonx_report.build_report(run_dir, run_dir / "report", plots=True)
+
+    assert "answers" in summary["files"]
+    assert "probabilities" in summary["files"]
+    assert "cett" in summary["files"]
+    assert "attention" in summary["files"]
+    assert (run_dir / "report" / "answers.png").exists()

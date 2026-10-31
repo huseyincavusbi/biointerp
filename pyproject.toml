@@ -39,6 +39,7 @@ esm = ["esm>=3.4.1; python_version >= '3.12'"]
 dnabert = ["einops", "triton; sys_platform == 'linux'"]
 generative = ["multimolecule"]
 evolution = ["metapredict"]
+analysis = ["matplotlib>=3.8"]
 
 [project.urls]
 Homepage = "https://github.com/huseyincavusbi/biointerp"
