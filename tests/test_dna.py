@@ -139,6 +139,36 @@ def test_load_carbon_4bit_uses_quantization_config(monkeypatch):
     assert config.bnb_4bit_use_double_quant is True
 
 
+def test_col_norm_cache_hit_and_invalid(monkeypatch, tmp_path):
+    carbon = FakeCarbon(hidden=8, intermediate=12, n_layers=2)
+    calls = {"n": 0}
+    original = dna.dequantize_weight
+
+    def counted(weight):
+        calls["n"] += 1
+        return original(weight)
+
+    monkeypatch.setattr(dna, "dequantize_weight", counted)
+    first = dna.precompute_col_norms(carbon, "carbon", [0, 1], cache=True, cache_dir=tmp_path)
+    assert calls["n"] == 2
+    assert {layer: tuple(value.shape) for layer, value in first.items()} == {
+        0: (12,),
+        1: (12,),
+    }
+
+    second = dna.precompute_col_norms(carbon, "carbon", [0, 1], cache=True, cache_dir=tmp_path)
+    assert calls["n"] == 2
+    assert all(torch.equal(first[i], second[i]) for i in first)
+
+    cache_file = next(tmp_path.glob("col_norms_*.pt"))
+    cache_file.write_bytes(b"invalid cache")
+    dna.precompute_col_norms(carbon, "carbon", [0, 1], cache=True, cache_dir=tmp_path)
+    assert calls["n"] == 4
+
+    dna.precompute_col_norms(carbon, "carbon", [0], cache=True, cache_dir=tmp_path)
+    assert calls["n"] == 5
+
+
 def test_as_ids_accepts_batch_encoding_like_objects():
     assert _as_ids(SimpleNamespace(input_ids=[[1, 2, 3]])) == [1, 2, 3]
     assert _as_ids({"input_ids": torch.tensor([[4, 5]])}) == [4, 5]
