@@ -1,4 +1,5 @@
-from types import SimpleNamespace
+import sys
+from types import ModuleType, SimpleNamespace
 
 import pytest
 import torch
@@ -72,6 +73,64 @@ def test_col_norms_shapes():
         0: (12,),
         1: (12,),
     }
+
+
+def test_dequantize_weight_uses_bitsandbytes_state(monkeypatch):
+    calls = {}
+
+    def fake_dequantize_4bit(data, state):
+        calls["data"] = data
+        calls["state"] = state
+        return torch.ones(3, 5)
+
+    bnb = ModuleType("bitsandbytes")
+    functional = ModuleType("bitsandbytes.functional")
+    functional.dequantize_4bit = fake_dequantize_4bit
+    monkeypatch.setitem(sys.modules, "bitsandbytes", bnb)
+    monkeypatch.setitem(sys.modules, "bitsandbytes.functional", functional)
+
+    class QuantWeight:
+        data = torch.zeros(8, 1, dtype=torch.uint8)
+        quant_state = object()
+
+    dense = dna.dequantize_weight(QuantWeight())
+    assert dense.shape == (3, 5)
+    assert dense.dtype == torch.float32
+    assert calls["state"] is QuantWeight.quant_state
+
+
+def test_load_carbon_4bit_uses_quantization_config(monkeypatch):
+    import transformers
+
+    calls = {}
+    monkeypatch.setattr(
+        transformers.AutoTokenizer,
+        "from_pretrained",
+        classmethod(lambda cls, *a, **k: "tokenizer"),
+    )
+
+    def fake_model(*args, **kwargs):
+        calls.update(kwargs)
+        return FakeCarbon(hidden=8, intermediate=12, n_layers=1)
+
+    monkeypatch.setattr(transformers.AutoModelForCausalLM, "from_pretrained", fake_model)
+    spec = {
+        "adapter": "carbon",
+        "hf_id": "HuggingFaceBio/Carbon-X",
+        "dtype": "bf16",
+        "load_in_4bit": True,
+        "compute_dtype": "bf16",
+    }
+    model, tokenizer, device = dna.load_dna_model(spec, device="cuda")
+    assert tokenizer == "tokenizer"
+    assert device == "cuda"
+    assert calls["device_map"] == {"": "cuda"}
+    assert calls["low_cpu_mem_usage"] is True
+    config = calls["quantization_config"]
+    assert config.load_in_4bit is True
+    assert config.bnb_4bit_quant_type == "nf4"
+    assert config.bnb_4bit_compute_dtype is torch.bfloat16
+    assert config.bnb_4bit_use_double_quant is True
 
 
 def test_as_ids_accepts_batch_encoding_like_objects():
