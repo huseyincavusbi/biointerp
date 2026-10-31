@@ -241,6 +241,29 @@ def test_causal_cett_shapes_and_cleanup():
         assert len(model.model.layers[layer].mlp.down_proj._forward_hooks) == 0
 
 
+def test_causal_cett_captures_attention():
+    model = FakeCarbon(hidden=16, intermediate=24, n_layers=3).eval()
+    original = model.forward
+
+    def forward(input_ids, attention_mask=None, output_attentions=False):
+        out = original(input_ids, attention_mask)
+        if output_attentions:
+            length = input_ids.shape[1]
+            out.attentions = tuple(torch.ones(1, 2, length, length) for _ in range(3))
+        return out
+
+    model.forward = forward
+    tokenizer = FakeKmerTokenizer()
+    tokens, positions, _ = causal_dna_batch(["ACGTACGTAA"], tokenizer, "carbon")
+    norms = dna.precompute_col_norms(model, "carbon", [0])
+    result = dna.extract_cett_causal(
+        model, tokens, positions, [0], norms, "carbon", capture_attention=True
+    )
+    length = tokens["input_ids"].shape[1]
+    assert len(result["attentions"]) == 3
+    assert result["attentions"][0].shape == (1, 2, length, length)
+
+
 def test_cett_batch_equals_single_rows():
     model = FakeDnaBert(hidden=8, intermediate=12, n_layers=2).eval()
     tokenizer = FakeDnaTokenizer()
