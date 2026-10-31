@@ -16,7 +16,6 @@ from biointerp.carbonx import (
     build_messages,
     dna_segments,
     encode_chat,
-    parse_answer,
     variant_indices,
 )
 from biointerp.causal import hidden_states_at, patch_hidden, patch_hidden_context
@@ -140,11 +139,6 @@ def main() -> None:
             "target": answer,
             "patched": patched_answer,
             "random_donor": random_answer,
-        },
-        "parsed": {
-            "target": parse_answer(answer),
-            "patched": parse_answer(patched_answer),
-            "random_donor": parse_answer(random_answer),
         },
     }
     out = Path(args.out) if args.out else RESULTS_DIR / "carbonx_patch.json"
