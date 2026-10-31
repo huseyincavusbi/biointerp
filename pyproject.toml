@@ -36,6 +36,7 @@ dependencies = [
 
 [project.optional-dependencies]
 esm = ["esm>=3.4.1; python_version >= '3.12'"]
+dnabert = ["einops", "triton; sys_platform == 'linux'"]
 generative = ["multimolecule"]
 evolution = ["metapredict"]
 
