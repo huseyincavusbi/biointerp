@@ -88,3 +88,48 @@ def patch_hidden(
     """Run a forward pass with donor hidden states at selected positions."""
     with patch_hidden_context(model, tokens, layer, positions, replacement, adapter):
         return model(**tokens)
+
+
+def get_attn_out_proj(layer, adapter: str):
+    """Return the projection that consumes concatenated attention heads."""
+    if adapter == "carbon":
+        attention = getattr(layer, "self_attn", None)
+        projection = getattr(attention, "o_proj", None) if attention is not None else None
+        if projection is not None:
+            return projection
+    raise ValueError(f"cannot find attention output projection for adapter {adapter!r}")
+
+
+@contextmanager
+def ablate_heads_context(model, layer: int, heads, adapter: str):
+    """Zero selected attention-head slices at a layer."""
+    blocks = get_layers(model, adapter)
+    projection = get_attn_out_proj(blocks[layer], adapter)
+    config = model.config
+    head_dim = getattr(config, "head_dim", None) or (
+        config.hidden_size // config.num_attention_heads
+    )
+    heads = sorted({int(head) for head in heads})
+    for head in heads:
+        if head < 0 or head >= config.num_attention_heads:
+            raise ValueError(f"head {head} outside [0, {config.num_attention_heads})")
+
+    def hook(module, args):
+        hidden = args[0].clone()
+        for head in heads:
+            start = head * head_dim
+            hidden[..., start : start + head_dim] = 0
+        return (hidden, *args[1:])
+
+    handle = projection.register_forward_pre_hook(hook)
+    try:
+        yield
+    finally:
+        handle.remove()
+
+
+@torch.inference_mode()
+def ablate_heads(model, tokens: dict, layer: int, heads, adapter: str):
+    """Run a forward pass with selected attention heads removed."""
+    with ablate_heads_context(model, layer, heads, adapter):
+        return model(**tokens)
