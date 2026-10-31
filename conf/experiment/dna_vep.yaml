@@ -1,0 +1,9 @@
+module: biointerp.experiments.dna_vep
+model_key: true
+args:
+- --dataset
+- clinvar_vep
+- --n
+- '100'
+- --batch-size
+- '8'
