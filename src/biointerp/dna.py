@@ -12,7 +12,9 @@ Both expose a standard FFN output projection, so the CETT formula is the same:
 
 from __future__ import annotations
 
+import hashlib
 import os
+from pathlib import Path
 from typing import Dict, List, Optional
 
 os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
@@ -87,17 +89,68 @@ def dequantize_weight(weight: torch.Tensor) -> torch.Tensor:
     return dequantize_4bit(weight.data, quant_state).detach().float()
 
 
+def _col_norm_cache_key(model, adapter: str, indices: List[int]) -> str:
+    identity = getattr(getattr(model, "config", None), "_name_or_path", None)
+    identity = identity or type(model).__name__
+    layers = ",".join(str(index) for index in indices)
+    return f"{identity}|{adapter}|{layers}"
+
+
+def _default_cache_dir() -> Path:
+    return Path(os.environ.get("BIOINTERP_CACHE_DIR", str(Path.home() / ".cache" / "biointerp")))
+
+
+def _load_col_norm_cache(path: Path, key: str, indices: List[int]):
+    if not path.exists():
+        return None
+    try:
+        payload = torch.load(path, map_location="cpu", weights_only=True)
+    except Exception:
+        return None
+    if not isinstance(payload, dict) or payload.get("key") != key:
+        return None
+    values = payload.get("norms")
+    if not isinstance(values, dict):
+        return None
+    norms = {}
+    for index in indices:
+        value = values.get(index)
+        if not isinstance(value, torch.Tensor) or value.ndim != 1:
+            return None
+        if not torch.isfinite(value).all():
+            return None
+        norms[index] = value.float().cpu()
+    return norms
+
+
 def precompute_col_norms(
-    model, adapter: str, layers: Optional[List[int]] = None
+    model,
+    adapter: str,
+    layers: Optional[List[int]] = None,
+    cache: bool = False,
+    cache_dir: Optional[Path] = None,
 ) -> Dict[int, torch.Tensor]:
     blocks = get_layers(model, adapter)
     indices = list(range(len(blocks))) if layers is None else layers
+    cache_path = None
+    if cache:
+        key = _col_norm_cache_key(model, adapter, indices)
+        base = Path(cache_dir) if cache_dir is not None else _default_cache_dir()
+        base.mkdir(parents=True, exist_ok=True)
+        digest = hashlib.sha256(key.encode()).hexdigest()[:16]
+        cache_path = base / f"col_norms_{digest}.pt"
+        cached = _load_col_norm_cache(cache_path, key, indices)
+        if cached is not None:
+            return cached
+
     norms: Dict[int, torch.Tensor] = {}
     for i in indices:
         module = get_ffn_output_proj(blocks[i], adapter)
         weight = dequantize_weight(module.weight)
         dim = 1 if type(module).__name__ == "Conv1D" else 0
         norms[i] = torch.norm(weight, dim=dim).cpu()
+    if cache_path is not None:
+        torch.save({"key": key, "norms": norms}, cache_path)
     return norms
 
 

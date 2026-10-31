@@ -119,7 +119,7 @@ def main() -> None:
     layers = parse_layers(args.layers, n_layers)
     print(f"cett layers: {layers} ({len(layers)}/{n_layers})", flush=True)
     started = time.time()
-    col_norms = precompute_col_norms(model, spec["adapter"], layers)
+    col_norms = precompute_col_norms(model, spec["adapter"], layers, cache=True)
     print(f"column norms ready in {time.time() - started:.1f}s", flush=True)
 
     offset = next((i for i, (a, b) in enumerate(zip(args.ref, args.alt)) if a != b), None)
