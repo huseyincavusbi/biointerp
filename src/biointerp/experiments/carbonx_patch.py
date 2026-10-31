@@ -40,13 +40,13 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-def _encode(tokenizer, ref, alt, condition, args):
+def _encode(tokenizer, ref, alt, condition, correct_gene, wrong_gene):
     messages = build_messages(
         ref,
         alt,
         condition,
-        correct_gene=args.correct_gene,
-        wrong_gene=args.wrong_gene,
+        correct_gene=correct_gene,
+        wrong_gene=wrong_gene,
     )
     encoded = encode_chat(tokenizer, messages)
     segments = dna_segments(tokenizer, encoded["input_ids"])
@@ -72,21 +72,31 @@ def _generate(model, tokenizer, tokens, max_new_tokens):
     ).strip()
 
 
-def main() -> None:
-    args = parse_args()
-    spec = get_spec(args.model_key)
-    model, tokenizer, device = load_model(args.model_key, args.device)
-    model.eval()
-
-    source, _, source_token, offset = _encode(tokenizer, args.ref, args.alt, args.source, args)
-    target, segments, target_token, target_offset = _encode(
-        tokenizer, args.ref, args.alt, args.target, args
+def run_patch(
+    model,
+    tokenizer,
+    spec,
+    ref,
+    alt,
+    source_condition,
+    target_condition,
+    layer,
+    correct_gene,
+    wrong_gene,
+    max_new_tokens,
+    device,
+):
+    source, _, source_token, offset = _encode(
+        tokenizer, ref, alt, source_condition, correct_gene, wrong_gene
+    )
+    target, _, target_token, target_offset = _encode(
+        tokenizer, ref, alt, target_condition, correct_gene, wrong_gene
     )
     if offset != target_offset:
-        raise SystemExit("source and target variant offsets differ")
+        raise ValueError("source and target variant offsets differ")
 
     n_layers = len(get_layers(model, spec["adapter"]))
-    layer = args.layer % n_layers
+    layer = layer % n_layers
     source_tokens = {k: v.to(device) for k, v in source.items()}
     target_tokens = {k: v.to(device) for k, v in target.items()}
     source_positions = torch.tensor([[source_token]], dtype=torch.long, device=device)
@@ -112,24 +122,21 @@ def main() -> None:
         .cpu()
     )
 
-    answer = _generate(model, tokenizer, target_tokens, args.max_new_tokens)
+    answer = _generate(model, tokenizer, target_tokens, max_new_tokens)
     with patch_hidden_context(
         model, target_tokens, layer, target_positions, donor, spec["adapter"]
     ):
-        patched_answer = _generate(model, tokenizer, target_tokens, args.max_new_tokens)
+        patched_answer = _generate(model, tokenizer, target_tokens, max_new_tokens)
     random_donor = torch.randn_like(donor)
     with patch_hidden_context(
         model, target_tokens, layer, target_positions, random_donor, spec["adapter"]
     ):
-        random_answer = _generate(model, tokenizer, target_tokens, args.max_new_tokens)
+        random_answer = _generate(model, tokenizer, target_tokens, max_new_tokens)
 
-    result = {
-        "model": args.model_key,
-        "ref": args.ref,
-        "alt": args.alt,
+    return {
         "offset": offset,
-        "source": args.source,
-        "target": args.target,
+        "source": source_condition,
+        "target": target_condition,
         "layer": layer,
         "ref_token_index": target_token,
         "logits": {
@@ -143,12 +150,36 @@ def main() -> None:
             "random_donor": random_answer,
         },
     }
+
+
+def main() -> None:
+    args = parse_args()
+    spec = get_spec(args.model_key)
+    model, tokenizer, device = load_model(args.model_key, args.device)
+    model.eval()
+    result = run_patch(
+        model,
+        tokenizer,
+        spec,
+        args.ref,
+        args.alt,
+        args.source,
+        args.target,
+        args.layer,
+        args.correct_gene,
+        args.wrong_gene,
+        args.max_new_tokens,
+        device,
+    )
+    result["model"] = args.model_key
+    result["ref"] = args.ref
+    result["alt"] = args.alt
     out = Path(args.out) if args.out else RESULTS_DIR / "carbonx_patch.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(result, indent=2) + "\n")
-    print(f"base: {answer[:160]}")
-    print(f"patched: {patched_answer[:160]}")
-    print(f"random: {random_answer[:160]}")
+    print(f"base: {result['answers']['target'][:160]}")
+    print(f"patched: {result['answers']['patched'][:160]}")
+    print(f"random: {result['answers']['random_donor'][:160]}")
     print(f"delta_l2: {result['logits']['delta_l2']:.4f}")
     print(f"saved: {out}")
 
