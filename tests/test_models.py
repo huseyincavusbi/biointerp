@@ -10,6 +10,13 @@ def test_registry_has_expected_models():
     assert reg["esm2_650m"]["hf_id"] == "facebook/esm2_t33_650M_UR50D"
 
 
+def test_all_registered_adapters_are_supported():
+    supported = {"esm", "esmc", "gen"}
+    bad = {key: spec["adapter"] for key, spec in models.registry().items()}
+    bad = {key: adapter for key, adapter in bad.items() if adapter not in supported}
+    assert bad == {}
+
+
 def test_resolve_id():
     assert models.resolve_id("esm2_8m") == "facebook/esm2_t6_8M_UR50D"
     assert models.resolve_id("facebook/esm2_t6_8M_UR50D") == "facebook/esm2_t6_8M_UR50D"
