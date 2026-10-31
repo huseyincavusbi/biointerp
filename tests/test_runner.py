@@ -55,6 +55,14 @@ def test_build_argv_keeps_negative_values():
     assert build_argv(cfg, {"start": "-3"}) == ["--start", "-3"]
 
 
+def test_build_argv_override_replaces_config_flag():
+    cfg = load_config("probing_classifier", "esm2_650m", "swissprot")
+    argv = build_argv(cfg, {"n": "5"})
+    assert argv.count("--n") == 1
+    assert argv[argv.index("--n") + 1] == "5"
+    assert "2000" not in argv
+
+
 def test_out_dir_layout(monkeypatch, tmp_path):
     monkeypatch.setattr(runner, "REPO_ROOT", tmp_path)
     cfg = {"experiment": "probing_classifier", "base": {"output_dir": "outputs"}}

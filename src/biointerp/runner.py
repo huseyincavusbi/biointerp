@@ -62,6 +62,21 @@ def load_config(
     }
 
 
+def _drop_flag(argv: List[str], flag: str) -> List[str]:
+    """Remove a flag and its value, so overrides replace config defaults."""
+    out: List[str] = []
+    i = 0
+    while i < len(argv):
+        if argv[i] == flag:
+            i += 1
+            if i < len(argv) and not argv[i].startswith("--"):
+                i += 1
+            continue
+        out.append(argv[i])
+        i += 1
+    return out
+
+
 def build_argv(cfg: Dict[str, Any], overrides: Optional[Dict[str, str]] = None) -> List[str]:
     """Build the experiment argv from its config plus CLI overrides."""
     argv: List[str] = [str(a) for a in cfg["experiment_cfg"].get("args", [])]
@@ -69,6 +84,7 @@ def build_argv(cfg: Dict[str, Any], overrides: Optional[Dict[str, str]] = None) 
         argv += ["--model-key", str(cfg["model"])]
     for key, value in (overrides or {}).items():
         flag = f"--{key.replace('_', '-')}"
+        argv = _drop_flag(argv, flag)
         if value is True or value == "":
             argv.append(flag)
         else:
