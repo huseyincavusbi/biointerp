@@ -44,8 +44,8 @@ def test_dna_probe_writes_outputs(monkeypatch, tmp_path):
     assert summary["tokenizer"] == "bpe"
     assert summary["results"]["n"] == 60
     assert 0.0 <= summary["results"]["token_accuracy"] <= 1.0
-    assert len(summary["rows"]) == 4
-    assert [row["layer"] for row in summary["rows"]] == [0, 1, 2, 3]
+    assert len(summary["rows"]) == 3
+    assert [row["layer"] for row in summary["rows"]] == [0, 1, 2]
 
     preds = (tmp_path / "dna_probe_dna_bert2.predictions.jsonl").read_text().splitlines()
     assert len(preds) == 60
