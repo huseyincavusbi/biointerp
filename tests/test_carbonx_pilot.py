@@ -33,6 +33,62 @@ def test_load_variants_skips_non_variants(tmp_path):
     assert variants[0]["label"] == 1
 
 
+def test_load_variants_from_manifest_order(tmp_path):
+    path = tmp_path / "vep.csv"
+    pd.DataFrame(
+        [
+            {
+                "ref_forward_sequence": "ACGTACGT",
+                "alt_forward_sequence": "ACGTACGA",
+                "label": 1,
+                "chromosome": "1",
+                "position": 10,
+                "ref": "T",
+                "alt": "A",
+            },
+            {
+                "ref_forward_sequence": "ACGTACGT",
+                "alt_forward_sequence": "ACGAACGT",
+                "label": 0,
+                "chromosome": "2",
+                "position": 20,
+                "ref": "T",
+                "alt": "A",
+            },
+        ]
+    ).to_csv(path, index=False)
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "variants": [
+                    {
+                        "chrom": "2",
+                        "position": 20,
+                        "ref": "T",
+                        "alt": "A",
+                        "label": 0,
+                        "split": "test",
+                    },
+                    {
+                        "chrom": "1",
+                        "position": 10,
+                        "ref": "T",
+                        "alt": "A",
+                        "label": 1,
+                        "split": "train",
+                    },
+                ]
+            }
+        )
+    )
+
+    variants, _ = pilot.load_variants("clinvar_vep", str(path), 50, 0, manifest=str(manifest))
+
+    assert [variant["chrom"] for variant in variants] == ["2", "1"]
+    assert [variant["label"] for variant in variants] == [0, 1]
+
+
 def test_read_done(tmp_path):
     path = tmp_path / "records.jsonl"
     path.write_text(
