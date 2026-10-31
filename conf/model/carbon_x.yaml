@@ -1,0 +1,8 @@
+# Carbon-X requires transformers>=5; use a separate environment for this model.
+adapter: carbon
+modality: dna
+hf_id: HuggingFaceBio/Carbon-X
+tokenizer: 6mer
+objective: causal
+context: 40960
+dtype: bf16

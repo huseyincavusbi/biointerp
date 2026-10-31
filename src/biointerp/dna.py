@@ -99,7 +99,10 @@ def load_dna_model(spec: dict, device: Optional[str] = None):
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
         tokenizer = AutoTokenizer.from_pretrained(hf_id, trust_remote_code=True)
-        model = AutoModelForCausalLM.from_pretrained(hf_id, trust_remote_code=True)
+        kwargs = {"trust_remote_code": True}
+        if spec.get("dtype") in ("bf16", "bfloat16"):
+            kwargs["torch_dtype"] = torch.bfloat16
+        model = AutoModelForCausalLM.from_pretrained(hf_id, **kwargs)
     elif adapter == "dnabert":
         from transformers import AutoModelForMaskedLM, AutoTokenizer
 

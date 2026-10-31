@@ -1,0 +1,7 @@
+module: biointerp.experiments.carbonx_context
+model_key: true
+args:
+- --ref
+- ACGTACGTACGT
+- --alt
+- ACGTACGTACGA
