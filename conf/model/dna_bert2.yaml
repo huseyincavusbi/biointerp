@@ -1,0 +1,8 @@
+# DNABERT-2 remote code imports triton; Linux-only wheels.
+adapter: dnabert
+modality: dna
+hf_id: zhihan1996/DNABERT-2-117M
+tokenizer: bpe
+objective: masked
+trust_remote_code: true
+context: 3000

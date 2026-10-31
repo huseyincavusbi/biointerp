@@ -1,0 +1,9 @@
+module: biointerp.experiments.dna_probe
+model_key: true
+args:
+- --n
+- '50'
+- --length
+- '60'
+- --batch-size
+- '8'

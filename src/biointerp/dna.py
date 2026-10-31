@@ -125,6 +125,7 @@ def extract_cett(
     layers: List[int],
     col_norms: Dict[int, torch.Tensor],
     adapter: str,
+    capture_hidden: bool = False,
 ):
     """Run one forward pass and return CETT + logits at the given token positions."""
     blocks = get_layers(model, adapter)
@@ -149,7 +150,7 @@ def extract_cett(
     for i in layers:
         handles.append(get_ffn_output_proj(blocks[i], adapter).register_forward_hook(make_hook(i)))
     try:
-        out = model(**tokens)
+        out = model(**tokens, output_hidden_states=capture_hidden)
     finally:
         for handle in handles:
             handle.remove()
@@ -162,18 +163,24 @@ def extract_cett(
     cett = torch.cat(cett_parts, dim=-1)
 
     logits = out.logits[b_idx, positions]
-    return {
+    result = {
         "cett": cett.reshape(batch * positions.shape[1], -1),
         "logits": logits.reshape(batch * positions.shape[1], -1).float().cpu(),
     }
+    if capture_hidden:
+        result["hidden_states"] = [
+            hidden[b_idx_cpu, positions_cpu].reshape(batch * positions.shape[1], -1).float().cpu()
+            for hidden in out.hidden_states
+        ]
+    return result
 
 
-def extract_cett_masked(model, tokens, positions, layers, col_norms, adapter):
-    return extract_cett(model, tokens, positions, layers, col_norms, adapter)
+def extract_cett_masked(model, tokens, positions, layers, col_norms, adapter, capture_hidden=False):
+    return extract_cett(model, tokens, positions, layers, col_norms, adapter, capture_hidden)
 
 
-def extract_cett_causal(model, tokens, positions, layers, col_norms, adapter):
-    return extract_cett(model, tokens, positions, layers, col_norms, adapter)
+def extract_cett_causal(model, tokens, positions, layers, col_norms, adapter, capture_hidden=False):
+    return extract_cett(model, tokens, positions, layers, col_norms, adapter, capture_hidden)
 
 
 @torch.inference_mode()

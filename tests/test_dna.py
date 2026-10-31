@@ -141,6 +141,20 @@ def test_masked_cett_shapes_and_cleanup():
         assert len(model.bert.encoder.layer[layer].output.dense._forward_hooks) == 0
 
 
+def test_masked_cett_captures_hidden_states():
+    model = FakeDnaBert(hidden=16, intermediate=24, n_layers=3).eval()
+    tokenizer = FakeDnaTokenizer()
+    tokens, positions, _, _ = masked_dna_batch(["ACGTAC", "ACGTAC"], tokenizer, "dnabert", seed=0)
+    layers = [0, 2]
+    norms = dna.precompute_col_norms(model, "dnabert", layers)
+    result = dna.extract_cett_masked(
+        model, tokens, positions, layers, norms, "dnabert", capture_hidden=True
+    )
+
+    assert len(result["hidden_states"]) == 4
+    assert result["hidden_states"][0].shape == (2, 16)
+
+
 def test_causal_cett_shapes_and_cleanup():
     model = FakeCarbon(hidden=16, intermediate=24, n_layers=3).eval()
     tokenizer = FakeKmerTokenizer()

@@ -37,6 +37,7 @@ def test_registry_defaults_modality_to_protein():
     reg = models.registry()
     assert reg["esm2_8m"]["modality"] == "protein"
     assert reg["carbon_500m"]["modality"] == "dna"
+    assert reg["dna_bert2"]["modality"] == "dna"
 
 
 def test_registry_keeps_full_spec(monkeypatch, tmp_path):
