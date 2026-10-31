@@ -105,6 +105,23 @@ class FakeKmerTokenizer:
         return [self._id_to_token.get(int(i), f"<unk:{int(i)}>") for i in ids]
 
 
+class FakePaddedKmerTokenizer(FakeKmerTokenizer):
+    """Six-mer tokenizer that pads a short tail into a full token."""
+
+    def __call__(self, text: str, add_special_tokens: bool = False) -> dict:
+        if "<dna>" not in text or "</dna>" not in text:
+            return super().__call__(text, add_special_tokens)
+        start = text.index("<dna>") + len("<dna>")
+        end = text.index("</dna>", start)
+        sequence = text[start:end]
+        ids = [DNA_OPEN]
+        for i in range(0, len(sequence), 6):
+            chunk = sequence[i : i + 6]
+            ids.append(self._id(chunk.ljust(6, "A")))
+        ids.append(DNA_CLOSE)
+        return {"input_ids": ids}
+
+
 class _FakeBertLayer(nn.Module):
     def __init__(self, hidden: int, intermediate: int):
         super().__init__()
