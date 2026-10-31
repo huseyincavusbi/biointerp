@@ -22,7 +22,8 @@ def registry() -> dict:
     reg = {}
     for path in sorted(CONFIG_DIR.glob("*.yaml")):
         spec = yaml.safe_load(path.read_text()) or {}
-        reg[path.stem] = {"adapter": spec.get("adapter"), "hf_id": spec.get("hf_id")}
+        spec.setdefault("modality", "protein")
+        reg[path.stem] = spec
     return reg
 
 
@@ -40,12 +41,20 @@ def resolve_id(key_or_id: str) -> str:
     return get_spec(key_or_id)["hf_id"]
 
 
-def list_models() -> list[str]:
-    return sorted(registry())
+def list_models(modality: Optional[str] = None) -> list[str]:
+    reg = registry()
+    if modality is not None:
+        reg = {key: spec for key, spec in reg.items() if spec.get("modality") == modality}
+    return sorted(reg)
 
 
 def load_model(key_or_id: str, device: Optional[str] = None) -> Tuple[object, object, str]:
     spec = get_spec(key_or_id)
+    if spec.get("modality") == "dna":
+        from biointerp.dna import load_dna_model
+
+        return load_dna_model(spec, device)
+
     adapter = spec.get("adapter", "esm")
     if adapter == "esm":
         from biointerp.esm import load_model as _load

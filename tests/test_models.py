@@ -33,6 +33,22 @@ def test_get_spec_by_hf_id_includes_key():
     assert spec["adapter"] == "esm"
 
 
+def test_registry_defaults_modality_to_protein():
+    assert {spec["modality"] for spec in models.registry().values()} == {"protein"}
+
+
+def test_registry_keeps_full_spec(monkeypatch, tmp_path):
+    (tmp_path / "custom.yaml").write_text(
+        "adapter: carbon\nhf_id: example/dna-model\nmodality: dna\ntokenizer: 6mer\n"
+    )
+    monkeypatch.setattr(models, "CONFIG_DIR", tmp_path)
+    spec = models.get_spec("custom")
+    assert spec["modality"] == "dna"
+    assert spec["tokenizer"] == "6mer"
+    assert models.list_models("dna") == ["custom"]
+    assert models.list_models("protein") == []
+
+
 def test_list_models_sorted():
     names = models.list_models()
     assert names == sorted(names)
