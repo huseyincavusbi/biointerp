@@ -11,6 +11,16 @@ requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Huseyin Cavus", email = "huseyincavus@proton.me" }]
 keywords = ["protein-language-models", "interpretability", "error-neurons", "cett"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     "numpy>=1.24",
     "torch>=2.0",
@@ -28,6 +38,11 @@ dependencies = [
 esm = ["esm>=3.4.1; python_version >= '3.12'"]
 generative = ["multimolecule"]
 evolution = ["metapredict"]
+
+[project.urls]
+Homepage = "https://github.com/huseyincavusbi/biointerp"
+Repository = "https://github.com/huseyincavusbi/biointerp"
+Issues = "https://github.com/huseyincavusbi/biointerp/issues"
 
 [dependency-groups]
 dev = ["pytest>=8.0", "ruff>=0.4", "pre-commit>=4.0"]
