@@ -75,6 +75,18 @@ def get_ffn_output_proj(layer, adapter: str):
     raise ValueError(f"cannot find FFN output projection for adapter {adapter!r}")
 
 
+def dequantize_weight(weight: torch.Tensor) -> torch.Tensor:
+    """Return a dense float copy of a weight, including bitsandbytes 4-bit."""
+    quant_state = getattr(weight, "quant_state", None)
+    if quant_state is None:
+        return weight.detach().float()
+    from bitsandbytes.functional import dequantize_4bit
+
+    # Params4bit.dequantize() can return the packed tensor on some ROCm
+    # builds; the functional path uses the stored quant state directly.
+    return dequantize_4bit(weight.data, quant_state).detach().float()
+
+
 def precompute_col_norms(
     model, adapter: str, layers: Optional[List[int]] = None
 ) -> Dict[int, torch.Tensor]:
@@ -83,7 +95,7 @@ def precompute_col_norms(
     norms: Dict[int, torch.Tensor] = {}
     for i in indices:
         module = get_ffn_output_proj(blocks[i], adapter)
-        weight = module.weight.detach().float()
+        weight = dequantize_weight(module.weight)
         dim = 1 if type(module).__name__ == "Conv1D" else 0
         norms[i] = torch.norm(weight, dim=dim).cpu()
     return norms
@@ -100,7 +112,23 @@ def load_dna_model(spec: dict, device: Optional[str] = None):
 
         tokenizer = AutoTokenizer.from_pretrained(hf_id, trust_remote_code=True)
         kwargs = {"trust_remote_code": True}
-        if spec.get("dtype") in ("bf16", "bfloat16"):
+        quantized = bool(spec.get("load_in_4bit"))
+        if quantized:
+            if not dev.startswith("cuda"):
+                raise ValueError("4-bit loading requires a CUDA/ROCm device")
+            from transformers import BitsAndBytesConfig
+
+            compute = spec.get("compute_dtype", spec.get("dtype", "bf16"))
+            compute_dtype = torch.bfloat16 if compute in ("bf16", "bfloat16") else torch.float16
+            kwargs["quantization_config"] = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_compute_dtype=compute_dtype,
+                bnb_4bit_use_double_quant=True,
+            )
+            kwargs["device_map"] = {"": dev}
+            kwargs["low_cpu_mem_usage"] = True
+        elif spec.get("dtype") in ("bf16", "bfloat16"):
             kwargs["torch_dtype"] = torch.bfloat16
         model = AutoModelForCausalLM.from_pretrained(hf_id, **kwargs)
     elif adapter == "dnabert":
@@ -120,7 +148,8 @@ def load_dna_model(spec: dict, device: Optional[str] = None):
         raise ValueError(f"unknown DNA adapter {adapter!r} for model {hf_id!r}")
 
     model.eval()
-    model.to(dev)
+    if not (adapter == "carbon" and spec.get("load_in_4bit")):
+        model.to(dev)
     if adapter == "dnabert":
         # DNABERT-2 selects its Triton kernel when attention dropout is zero,
         # including on CPU/MPS where the kernel cannot run. A nonzero p_dropout
