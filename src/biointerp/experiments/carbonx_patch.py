@@ -95,7 +95,8 @@ def main() -> None:
     donor = hidden_states_at(model, source_tokens, source_positions, [layer], spec["adapter"])[
         layer
     ]
-    base_logits = model(**target_tokens).logits[0, target_token].float().cpu()
+    with torch.no_grad():
+        base_logits = model(**target_tokens).logits[0, target_token].detach().float().cpu()
     patched_logits = (
         patch_hidden(
             model,
@@ -106,6 +107,7 @@ def main() -> None:
             spec["adapter"],
         )
         .logits[0, target_token]
+        .detach()
         .float()
         .cpu()
     )
