@@ -77,6 +77,11 @@ def _drop_flag(argv: List[str], flag: str) -> List[str]:
     return out
 
 
+def load_dataset_config(name: str) -> Dict[str, Any]:
+    """Load ``conf/dataset/<name>.yaml`` for experiments that fetch their own data."""
+    return _load(CONF_DIR / "dataset" / f"{name}.yaml")
+
+
 def build_argv(cfg: Dict[str, Any], overrides: Optional[Dict[str, str]] = None) -> List[str]:
     """Build the experiment argv from its config plus CLI overrides."""
     argv: List[str] = [str(a) for a in cfg["experiment_cfg"].get("args", [])]

@@ -10,6 +10,7 @@ from biointerp.runner import (
     _out_dir,
     build_argv,
     load_config,
+    load_dataset_config,
     run,
     run_grid,
 )
@@ -42,6 +43,12 @@ def test_dry_run_builds_command():
 
 def test_load_missing_file_returns_empty(tmp_path):
     assert _load(tmp_path / "missing.yaml") == {}
+
+
+def test_load_dataset_config():
+    cfg = load_dataset_config("clinvar_vep")
+    assert cfg["hf_id"] == "emarro/clinvar_vep_512"
+    assert cfg["label_column"] == "label"
 
 
 def test_build_argv_order_and_overrides():

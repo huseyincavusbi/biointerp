@@ -1,0 +1,8 @@
+source: hf
+hf_id: emarro/clinvar_vep_512
+file: data/train-00000-of-00001.parquet
+ref_column: ref_forward_sequence
+alt_column: alt_forward_sequence
+label_column: label
+chrom_column: chromosome
+max_n: 200
