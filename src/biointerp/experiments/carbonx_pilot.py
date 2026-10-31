@@ -27,6 +27,7 @@ from biointerp.carbonx import (
     dna_token_positions,
     encode_chat,
     parse_answer,
+    pathogenic_probability,
     reduce_attention,
     variant_indices,
 )
@@ -50,6 +51,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--correct-gene", default="BRCA1")
     p.add_argument("--wrong-gene", default="TP53")
     p.add_argument("--attention", action="store_true")
+    p.add_argument("--probability", action="store_true")
     p.add_argument("--resume", action="store_true")
     p.add_argument("--device", default=None)
     p.add_argument("--out", default=None, help="output directory")
@@ -176,6 +178,7 @@ def main() -> None:
                 segments = dna_segments(tokenizer, input_ids)
                 ref_token = alt_token = None
                 cett = None
+                probability = None
                 attention_dna = None
                 attention_variant = None
                 context_tokens = []
@@ -209,6 +212,8 @@ def main() -> None:
                         context_tokens = [str(tokens_text[i]) for i in context_positions]
 
                 tokens = {k: v.to(device) for k, v in encoded.items()}
+                if args.probability:
+                    probability = pathogenic_probability(model, tokenizer, tokens)
                 with torch.no_grad():
                     generated = model.generate(
                         **tokens,
@@ -244,6 +249,15 @@ def main() -> None:
                     "condition": condition,
                     "answer": answer,
                     "parsed": parsed,
+                    "p_pathogenic": None
+                    if probability is None
+                    else round(float(probability["p_pathogenic"]), 6),
+                    "logp_pathogenic": None
+                    if probability is None
+                    else round(float(probability["logp_pathogenic"]), 6),
+                    "logp_benign": None
+                    if probability is None
+                    else round(float(probability["logp_benign"]), 6),
                     "ref_token_index": ref_token,
                     "alt_token_index": alt_token,
                     "cett_shape": None if cett is None else list(cett.shape),
@@ -271,6 +285,17 @@ def main() -> None:
         }
         for condition in conditions
     }
+    probabilities = {}
+    for condition in conditions:
+        values = [
+            record["p_pathogenic"]
+            for record in records
+            if record["condition"] == condition and record.get("p_pathogenic") is not None
+        ]
+        probabilities[condition] = {
+            "n": len(values),
+            "mean_p_pathogenic": None if not values else round(float(np.mean(values)), 6),
+        }
     flips = 0
     for variant_id in sorted({record["variant"] for record in records}):
         labels = {
@@ -290,12 +315,14 @@ def main() -> None:
             "layers": layers,
             "max_new_tokens": args.max_new_tokens,
             "attention": args.attention,
+            "probability": args.probability,
             "seed": args.seed,
             "device": device,
         },
         "records": len(records),
         "new_records": generated_records,
         "answers": answers,
+        "probabilities": probabilities,
         "flips": flips,
         "files": {
             "records": str(records_path),
