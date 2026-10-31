@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from typing import Iterable, List
 
@@ -21,6 +22,8 @@ CONDITIONS = (
     "irrelevant_text",
     "english_only",
 )
+QUESTION = "Is this variant likely benign or pathogenic? Answer briefly."
+FORCED_CHOICE = "Answer with exactly one word: benign or pathogenic."
 
 
 def _negated(text: str, start: int) -> bool:
@@ -68,13 +71,13 @@ def build_messages(
     condition: str = "dna_only",
     correct_gene: str = "BRCA1",
     wrong_gene: str = "TP53",
+    question: str = QUESTION,
 ) -> List[dict]:
     if condition not in CONDITIONS:
         raise ValueError(f"unknown condition {condition!r}; choose from {CONDITIONS}")
     dna = f"Reference: <dna>{ref}</dna>\nVariant: <dna>{alt}</dna>"
-    question = "Is this variant likely benign or pathogenic? Answer briefly."
     if condition == "english_only":
-        content = f"Is this {correct_gene} variant likely benign or pathogenic? Answer briefly."
+        content = f"Gene: {correct_gene}\n\n{question}"
     elif condition == "dna_only":
         content = f"{dna}\n\n{question}"
     elif condition == "correct_gene":
@@ -103,6 +106,48 @@ def encode_chat(tokenizer, messages: List[dict], **kwargs):
         return_dict=True,
         **kwargs,
     )
+
+
+@torch.inference_mode()
+def continuation_logprob(model, tokens: dict, continuation_ids) -> float:
+    """Return log p(continuation | prompt) for one token sequence."""
+    input_ids = tokens["input_ids"]
+    if input_ids.dim() == 1:
+        input_ids = input_ids.unsqueeze(0)
+    attention_mask = tokens.get("attention_mask")
+    if attention_mask is None:
+        attention_mask = torch.ones_like(input_ids)
+    if attention_mask.dim() == 1:
+        attention_mask = attention_mask.unsqueeze(0)
+    continuation = torch.tensor([list(continuation_ids)], dtype=torch.long, device=input_ids.device)
+    full_ids = torch.cat([input_ids, continuation], dim=1)
+    full_mask = torch.cat([attention_mask, torch.ones_like(continuation)], dim=1)
+    forward = dict(tokens)
+    forward["input_ids"] = full_ids
+    forward["attention_mask"] = full_mask
+    logits = model(**forward).logits.float()
+    start = input_ids.shape[1]
+    selected = logits[:, start - 1 : start - 1 + continuation.shape[1], :]
+    logp = torch.log_softmax(selected, dim=-1)
+    indices = torch.arange(continuation.shape[1], device=input_ids.device)
+    return float(logp[0, indices, continuation[0]].sum())
+
+
+def pathogenic_probability(model, tokenizer, tokens: dict) -> dict:
+    """Compare the log-probability of ``pathogenic`` and ``benign``."""
+    positive = tokenizer.encode(" pathogenic", add_special_tokens=False)
+    negative = tokenizer.encode(" benign", add_special_tokens=False)
+    if not positive or not negative:
+        raise ValueError("tokenizer produced an empty answer continuation")
+    logp_positive = continuation_logprob(model, tokens, positive)
+    logp_negative = continuation_logprob(model, tokens, negative)
+    high = max(logp_positive, logp_negative)
+    log_denom = high + math.log(math.exp(logp_positive - high) + math.exp(logp_negative - high))
+    return {
+        "p_pathogenic": math.exp(logp_positive - log_denom),
+        "logp_pathogenic": logp_positive,
+        "logp_benign": logp_negative,
+    }
 
 
 def _token_length(token: str) -> int:
