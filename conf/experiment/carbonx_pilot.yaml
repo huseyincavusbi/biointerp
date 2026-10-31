@@ -1,0 +1,8 @@
+module: biointerp.experiments.carbonx_pilot
+model_key: true
+args:
+- --dataset
+- clinvar_vep
+- --n
+- '50'
+- --attention

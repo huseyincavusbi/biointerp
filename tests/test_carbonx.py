@@ -8,6 +8,7 @@ from biointerp.carbonx import (
     context_token_positions,
     dna_segments,
     dna_token_positions,
+    parse_answer,
     reduce_attention,
     variant_indices,
 )
@@ -46,6 +47,16 @@ def test_build_messages_conditions():
         "irrelevant_text",
         "english_only",
     }
+
+
+def test_parse_answer_labels():
+    assert parse_answer("Likely pathogenic")["label"] == "pathogenic"
+    assert parse_answer("This is benign")["label"] == "benign"
+    assert parse_answer("Uncertain significance")["label"] == "uncertain"
+    assert parse_answer("The variant changes position")["label"] == "unparsed"
+    assert parse_answer("not pathogenic")["label"] == "benign"
+    assert parse_answer("not benign, likely pathogenic")["label"] == "pathogenic"
+    assert parse_answer("pathogenic or benign")["label"] == "ambiguous"
 
 
 def test_parse_layers():

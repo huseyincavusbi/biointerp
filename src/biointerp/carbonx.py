@@ -10,6 +10,10 @@ import torch
 from .dna_task import variant_token_index
 
 DNA_TOKEN = re.compile(r"^[ACGTN]{1,6}$")
+PATHOGENIC = re.compile(r"\b(likely pathogenic|pathogenic)\b")
+BENIGN = re.compile(r"\b(likely benign|benign)\b")
+UNCERTAIN = re.compile(r"\b(uncertain|vus|conflicting)\b")
+NEGATION = re.compile(r"\b(not|no|never|without|cannot|unlikely)\b")
 CONDITIONS = (
     "dna_only",
     "correct_gene",
@@ -17,6 +21,45 @@ CONDITIONS = (
     "irrelevant_text",
     "english_only",
 )
+
+
+def _negated(text: str, start: int) -> bool:
+    prefix = text[max(0, start - 28) : start]
+    clause = re.split(r"[,.;:]|\bbut\b", prefix)[-1]
+    return NEGATION.search(clause) is not None
+
+
+def parse_answer(text: str) -> dict:
+    """Map a free-form Carbon-X answer to a deterministic label."""
+    lower = " ".join(str(text).lower().split())
+    matches = []
+    for label, pattern in (
+        ("pathogenic", PATHOGENIC),
+        ("benign", BENIGN),
+        ("uncertain", UNCERTAIN),
+    ):
+        for match in pattern.finditer(lower):
+            matches.append((match.start(), label, match.group(0)))
+    if not matches:
+        return {"label": "unparsed", "matched": None, "negated": False}
+
+    labels = set()
+    matched = None
+    negated = False
+    for start, label, phrase in sorted(matches):
+        flipped = _negated(lower, start)
+        final = label
+        if flipped and label == "pathogenic":
+            final = "benign"
+        elif flipped and label == "benign":
+            final = "pathogenic"
+        labels.add(final)
+        if matched is None:
+            matched = phrase
+            negated = flipped
+    if len(labels) > 1:
+        return {"label": "ambiguous", "matched": matched, "negated": negated}
+    return {"label": labels.pop(), "matched": matched, "negated": negated}
 
 
 def build_messages(
