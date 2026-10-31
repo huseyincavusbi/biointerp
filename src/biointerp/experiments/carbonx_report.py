@@ -17,6 +17,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--run", required=True, help="pilot output directory")
     p.add_argument("--out", default=None, help="report directory")
+    p.add_argument("--plots", action="store_true", help="write matplotlib figures")
     return p.parse_args()
 
 
@@ -134,7 +135,89 @@ def _features(run_dir: Path, records: list[dict]) -> tuple[pd.DataFrame, pd.Data
     )
 
 
-def build_report(run_dir: Path, out_dir: Path) -> dict:
+def _plots(answers, probabilities, cett, attention, out_dir: Path) -> dict:
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except ImportError as error:
+        raise SystemExit(
+            "matplotlib is required for --plots; install biointerp[analysis]"
+        ) from error
+
+    files = {}
+    if not answers.empty:
+        table = answers.pivot(index="condition", columns="label", values="count").fillna(0)
+        colors = {
+            "benign": "#4c9a6a",
+            "pathogenic": "#c85a54",
+            "uncertain": "#8a8a8a",
+            "ambiguous": "#d6a84b",
+            "unparsed": "#d9d9d9",
+        }
+        fig, ax = plt.subplots(figsize=(8, 4))
+        bottom = pd.Series(0, index=table.index)
+        for label in table.columns:
+            ax.bar(
+                table.index,
+                table[label],
+                bottom=bottom,
+                label=label,
+                color=colors.get(label, "#999999"),
+            )
+            bottom += table[label]
+        ax.set_ylabel("variants")
+        ax.set_title("Answer distribution by prompt condition")
+        ax.legend()
+        fig.tight_layout()
+        files["answers"] = out_dir / "answers.png"
+        fig.savefig(files["answers"], dpi=150)
+        plt.close(fig)
+
+    if not probabilities.empty:
+        fig, ax = plt.subplots(figsize=(8, 4))
+        ax.bar(
+            probabilities["condition"],
+            probabilities["mean_p"],
+            yerr=probabilities["std_p"].fillna(0),
+            color="#5b7fbf",
+        )
+        ax.set_ylim(0, 1)
+        ax.set_ylabel("mean p(pathogenic)")
+        ax.set_title("Forced-choice pathogenic probability")
+        fig.tight_layout()
+        files["probabilities"] = out_dir / "probabilities.png"
+        fig.savefig(files["probabilities"], dpi=150)
+        plt.close(fig)
+
+    if not cett.empty:
+        table = cett.groupby("layer")["norm"].mean()
+        fig, ax = plt.subplots(figsize=(8, 4))
+        ax.plot(table.index, table.values, marker="o")
+        ax.set_xlabel("layer")
+        ax.set_ylabel("mean CETT norm")
+        ax.set_title("CETT magnitude by layer")
+        fig.tight_layout()
+        files["cett"] = out_dir / "cett_norms.png"
+        fig.savefig(files["cett"], dpi=150)
+        plt.close(fig)
+
+    if not attention.empty:
+        table = attention.groupby("layer")["mean_attention"].mean()
+        fig, ax = plt.subplots(figsize=(8, 4))
+        ax.plot(table.index, table.values, marker="o", color="#c85a54")
+        ax.set_xlabel("layer")
+        ax.set_ylabel("mean DNA→context attention")
+        ax.set_title("Attention by layer")
+        fig.tight_layout()
+        files["attention"] = out_dir / "attention.png"
+        fig.savefig(files["attention"], dpi=150)
+        plt.close(fig)
+    return files
+
+
+def build_report(run_dir: Path, out_dir: Path, plots: bool = False) -> dict:
     records = _records(run_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     answers = _answers(records)
@@ -153,6 +236,8 @@ def build_report(run_dir: Path, out_dir: Path) -> dict:
     flips.to_csv(files["flips"], index=False)
     cett.to_csv(files["cett"], index=False)
     attention.to_csv(files["attention"], index=False)
+    if plots:
+        files.update(_plots(answers, probabilities, cett, attention, out_dir))
 
     summary = {
         "run": str(run_dir),
@@ -171,7 +256,7 @@ def main() -> None:
     args = parse_args()
     run_dir = Path(args.run)
     out_dir = Path(args.out) if args.out else run_dir / "report"
-    summary = build_report(run_dir, out_dir)
+    summary = build_report(run_dir, out_dir, plots=args.plots)
     print(
         f"records={summary['n_records']} variants={summary['n_variants']} "
         f"flipped={summary['n_flipped']}"
