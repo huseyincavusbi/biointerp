@@ -114,6 +114,16 @@ def load_dna_model(spec: dict, device: Optional[str] = None):
 
     model.eval()
     model.to(dev)
+    if adapter == "dnabert":
+        # DNABERT-2 selects its Triton kernel when attention dropout is zero,
+        # including on CPU/MPS where the kernel cannot run. A nonzero p_dropout
+        # keeps inference on the standard PyTorch path (dropout is inactive in
+        # eval mode), making CPU/MPS and CUDA behavior consistent.
+        for block in get_layers(model, "dnabert"):
+            attention = getattr(block, "attention", None)
+            self_attention = getattr(attention, "self", None)
+            if hasattr(self_attention, "p_dropout"):
+                self_attention.p_dropout = max(float(self_attention.p_dropout), 1e-6)
     return model, tokenizer, dev
 
 
