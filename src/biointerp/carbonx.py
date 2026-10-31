@@ -87,6 +87,14 @@ def build_messages(
 
 
 def encode_chat(tokenizer, messages: List[dict], **kwargs):
+    if not getattr(tokenizer, "chat_template", None):
+        text = "\n\n".join(message["content"] for message in messages if message["role"] == "user")
+        fallback = {
+            key: value
+            for key, value in kwargs.items()
+            if key not in ("add_generation_prompt", "enable_thinking")
+        }
+        return tokenizer(text, return_tensors="pt", return_dict=True, **fallback)
     return tokenizer.apply_chat_template(
         messages,
         add_generation_prompt=True,
