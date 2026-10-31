@@ -8,6 +8,7 @@ from biointerp.carbonx import (
     context_token_positions,
     dna_segments,
     dna_token_positions,
+    encode_chat,
     parse_answer,
     reduce_attention,
     variant_indices,
@@ -47,6 +48,18 @@ def test_build_messages_conditions():
         "irrelevant_text",
         "english_only",
     }
+
+
+def test_encode_chat_falls_back_without_template():
+    class Tok:
+        chat_template = None
+
+        def __call__(self, text, **kwargs):
+            return {"input_ids": [[len(text)]], "text": text}
+
+    encoded = encode_chat(Tok(), [{"role": "user", "content": "hello"}])
+    assert encoded["text"] == "hello"
+    assert encoded["input_ids"] == [[5]]
 
 
 def test_parse_answer_labels():
