@@ -1,0 +1,9 @@
+module: biointerp.experiments.dna_cett
+model_key: true
+args:
+- --n
+- '20'
+- --length
+- '60'
+- --batch-size
+- '8'
