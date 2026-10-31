@@ -1,6 +1,7 @@
 import sys
 
 from biointerp.carbonx import CONDITIONS, build_messages, dna_segments, variant_indices
+from biointerp.experiments.carbonx_context import parse_layers
 
 
 class _Tok:
@@ -35,6 +36,20 @@ def test_build_messages_conditions():
         "irrelevant_text",
         "english_only",
     }
+
+
+def test_parse_layers():
+    assert parse_layers("all", 40) == list(range(40))
+    assert parse_layers("last:2", 40) == [38, 39]
+    assert parse_layers("0,39", 40) == [0, 39]
+    assert parse_layers("last:50", 40) == list(range(40))
+    for value in ("", "40", "-1", "last:0"):
+        try:
+            parse_layers(value, 40)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"{value!r} should be rejected")
 
 
 def test_dna_segments_and_variant_indices():
