@@ -13,7 +13,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 import numpy as np
 import torch
 
-from biointerp.carbonx import CONDITIONS, build_messages, dna_segments, encode_chat, variant_indices
+from biointerp.carbonx import (
+    CONDITIONS,
+    build_messages,
+    context_token_positions,
+    dna_segments,
+    dna_token_positions,
+    encode_chat,
+    reduce_attention,
+    variant_indices,
+)
 from biointerp.core import RESULTS_DIR
 from biointerp.dna import extract_cett_causal, get_layers, precompute_col_norms
 from biointerp.models import get_spec, load_model
@@ -34,6 +43,11 @@ def parse_args() -> argparse.Namespace:
         help="CETT layers: 'all', 'last:N', or comma-separated indices",
     )
     p.add_argument("--max-new-tokens", type=int, default=128)
+    p.add_argument(
+        "--attention",
+        action="store_true",
+        help="capture DNA-to-English attention at the variant token",
+    )
     p.add_argument(
         "--save-quantized",
         default=None,
@@ -89,6 +103,12 @@ def main() -> None:
     print(f"loading {model_name}...", flush=True)
     model, tokenizer, device = load_model(model_name, args.device)
     model.eval()
+    if args.attention:
+        try:
+            model.set_attn_implementation("eager")
+        except AttributeError:
+            model.config._attn_implementation = "eager"
+        print("attention implementation: eager", flush=True)
     print(f"loaded in {time.time() - started:.1f}s on {device}", flush=True)
     if args.save_quantized:
         model.save_pretrained(args.save_quantized)
@@ -108,6 +128,7 @@ def main() -> None:
 
     rows = []
     cett_store = {}
+    attention_store = {}
     for condition in conditions:
         print(f"=== {condition} ===", flush=True)
         messages = build_messages(
@@ -122,16 +143,44 @@ def main() -> None:
         segments = dna_segments(tokenizer, input_ids)
         ref_token = alt_token = None
         cett = None
+        attention_shape = None
         if len(segments) >= 2:
             ref_token, alt_token = variant_indices(segments, offset)
             token_positions = torch.tensor([[ref_token]], dtype=torch.long, device=device)
             tokens = {key: value.to(device) for key, value in encoded.items()}
             result = extract_cett_causal(
-                model, tokens, token_positions, layers, col_norms, spec["adapter"]
+                model,
+                tokens,
+                token_positions,
+                layers,
+                col_norms,
+                spec["adapter"],
+                capture_attention=args.attention,
             )
             cett = result["cett"][0].numpy()
             cett_store[condition] = cett
             print(f"cett: {cett.shape}", flush=True)
+            if args.attention:
+                dna_positions = dna_token_positions(segments)
+                context_positions = context_token_positions(tokenizer, input_ids, segments)
+                dna_attention = reduce_attention(
+                    result["attentions"], dna_positions, context_positions
+                )
+                variant_attention = reduce_attention(
+                    result["attentions"], [ref_token], context_positions
+                )
+                ids = input_ids.tolist()
+                if ids and isinstance(ids[0], list):
+                    ids = ids[0]
+                tokens_text = tokenizer.convert_ids_to_tokens(ids)
+                attention_store[condition] = {
+                    "dna": dna_attention,
+                    "variant": variant_attention,
+                    "context_tokens": [tokens_text[i] for i in context_positions],
+                    "context_positions": context_positions,
+                }
+                attention_shape = None if dna_attention is None else list(dna_attention.shape)
+                print(f"attention: {attention_shape}", flush=True)
 
         tokens = {key: value.to(device) for key, value in encoded.items()}
         with torch.no_grad():
@@ -153,6 +202,7 @@ def main() -> None:
                 "alt_token_index": alt_token,
                 "n_dna_segments": len(segments),
                 "cett_shape": None if cett is None else list(cett.shape),
+                "attention_shape": attention_shape,
             }
         )
         print(f"{condition:>16s}: {answer[:160]}")
@@ -161,6 +211,15 @@ def main() -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     if cett_store:
         np.savez_compressed(out.with_suffix(".cett.npz"), **cett_store)
+    if attention_store:
+        attention_arrays = {}
+        for condition, values in attention_store.items():
+            if values["dna"] is not None:
+                attention_arrays[f"{condition}_dna"] = values["dna"]
+            if values["variant"] is not None:
+                attention_arrays[f"{condition}_variant"] = values["variant"]
+            attention_arrays[f"{condition}_context"] = np.array(values["context_tokens"])
+        np.savez_compressed(out.with_suffix(".attention.npz"), **attention_arrays)
     out.write_text(
         json.dumps(
             {

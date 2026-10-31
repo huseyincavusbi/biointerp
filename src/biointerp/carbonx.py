@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from typing import Iterable, List
 
+import torch
+
 from .dna_task import variant_token_index
 
 DNA_TOKEN = re.compile(r"^[ACGTN]{1,6}$")
@@ -109,3 +111,49 @@ def variant_indices(segments: Iterable[dict], offset: int) -> tuple[int, int]:
         variant_token_index(segments[0]["spans"], offset),
         variant_token_index(segments[1]["spans"], offset),
     )
+
+
+def dna_token_positions(segments: Iterable[dict]) -> List[int]:
+    """Return all token positions that belong to DNA segments."""
+    positions = []
+    for segment in segments:
+        positions.extend(range(segment["start_token"], segment["end_token"]))
+    return positions
+
+
+def context_token_positions(tokenizer, input_ids, segments: Iterable[dict]) -> List[int]:
+    """Return non-DNA, non-special token positions (English context)."""
+    if hasattr(input_ids, "tolist"):
+        input_ids = input_ids.tolist()
+    if input_ids and isinstance(input_ids[0], list):
+        input_ids = input_ids[0]
+    tokens = tokenizer.convert_ids_to_tokens(input_ids)
+    special = set(getattr(tokenizer, "all_special_ids", None) or [])
+    dna_positions = set(dna_token_positions(segments))
+    positions = []
+    for index, (token_id, token) in enumerate(zip(input_ids, tokens)):
+        if index in dna_positions or int(token_id) in special:
+            continue
+        if str(token) in ("<dna>", "</dna>"):
+            continue
+        positions.append(index)
+    return positions
+
+
+def reduce_attention(
+    attentions: Iterable[torch.Tensor],
+    query_positions: Iterable[int],
+    key_positions: Iterable[int],
+):
+    """Average attention from query positions to keys, per layer and head."""
+    query_positions = list(query_positions)
+    key_positions = list(key_positions)
+    if not query_positions or not key_positions:
+        return None
+    parts = []
+    for attention in attentions:
+        queries = torch.tensor(query_positions, dtype=torch.long, device=attention.device)
+        keys = torch.tensor(key_positions, dtype=torch.long, device=attention.device)
+        selected = attention[0][:, queries][:, :, keys]
+        parts.append(selected.mean(dim=1))
+    return torch.stack(parts).float().numpy()

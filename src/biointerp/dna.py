@@ -190,6 +190,7 @@ def extract_cett(
     col_norms: Dict[int, torch.Tensor],
     adapter: str,
     capture_hidden: bool = False,
+    capture_attention: bool = False,
 ):
     """Run one forward pass and return CETT + logits at the given token positions."""
     blocks = get_layers(model, adapter)
@@ -233,8 +234,11 @@ def extract_cett(
     if capture_hidden:
         for i in range(len(blocks)):
             handles.append(blocks[i].register_forward_hook(make_hidden_hook(i)))
+    forward = dict(tokens)
+    if capture_attention:
+        forward["output_attentions"] = True
     try:
-        out = model(**tokens)
+        out = model(**forward)
     finally:
         for handle in handles:
             handle.remove()
@@ -257,15 +261,56 @@ def extract_cett(
             [hidden_cache[i].reshape(batch * positions.shape[1], -1) for i in range(len(blocks))]
         )
         result["hidden_states"] = list(hidden.float().cpu())
+    if capture_attention:
+        attentions = getattr(out, "attentions", None)
+        if not attentions:
+            raise RuntimeError("model returned no attention weights; use eager attention")
+        result["attentions"] = [item.detach().float().cpu() for item in attentions]
     return result
 
 
-def extract_cett_masked(model, tokens, positions, layers, col_norms, adapter, capture_hidden=False):
-    return extract_cett(model, tokens, positions, layers, col_norms, adapter, capture_hidden)
+def extract_cett_masked(
+    model,
+    tokens,
+    positions,
+    layers,
+    col_norms,
+    adapter,
+    capture_hidden=False,
+    capture_attention=False,
+):
+    return extract_cett(
+        model,
+        tokens,
+        positions,
+        layers,
+        col_norms,
+        adapter,
+        capture_hidden,
+        capture_attention,
+    )
 
 
-def extract_cett_causal(model, tokens, positions, layers, col_norms, adapter, capture_hidden=False):
-    return extract_cett(model, tokens, positions, layers, col_norms, adapter, capture_hidden)
+def extract_cett_causal(
+    model,
+    tokens,
+    positions,
+    layers,
+    col_norms,
+    adapter,
+    capture_hidden=False,
+    capture_attention=False,
+):
+    return extract_cett(
+        model,
+        tokens,
+        positions,
+        layers,
+        col_norms,
+        adapter,
+        capture_hidden,
+        capture_attention,
+    )
 
 
 @torch.inference_mode()

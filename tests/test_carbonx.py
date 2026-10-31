@@ -1,6 +1,16 @@
 import sys
 
-from biointerp.carbonx import CONDITIONS, build_messages, dna_segments, variant_indices
+import torch
+
+from biointerp.carbonx import (
+    CONDITIONS,
+    build_messages,
+    context_token_positions,
+    dna_segments,
+    dna_token_positions,
+    reduce_attention,
+    variant_indices,
+)
 from biointerp.experiments.carbonx_context import parse_layers
 
 
@@ -59,6 +69,40 @@ def test_dna_segments_and_variant_indices():
     assert segments[1]["spans"] == [(0, 6), (6, 8)]
     assert variant_indices(segments, 7) == (1, 1)
     assert variant_indices(segments, 2) == (0, 0)
+
+
+def test_dna_and_context_positions():
+    class Tok:
+        all_special_ids = [0, 8]
+
+        def convert_ids_to_tokens(self, ids):
+            return [
+                "<s>",
+                "Gene:",
+                "BRCA1",
+                "<dna>",
+                "ACGTAC",
+                "</dna>",
+                "Is",
+                "?",
+                "</s>",
+            ]
+
+    segments = [{"start_token": 4, "end_token": 5}]
+    assert dna_token_positions(segments) == [4]
+    assert context_token_positions(Tok(), list(range(9)), segments) == [1, 2, 6, 7]
+
+
+def test_reduce_attention_averages_queries():
+    attention = torch.zeros(1, 2, 5, 4)
+    attention[:, :, 1, 0] = 1.0
+    attention[:, :, 3, 0] = 3.0
+    attention[:, :, 1, 2] = 2.0
+    attention[:, :, 3, 2] = 4.0
+    reduced = reduce_attention([attention], [1, 3], [0, 2])
+    assert reduced.shape == (1, 2, 2)
+    assert reduced[0, 0, 0] == 2.0
+    assert reduced[0, 0, 1] == 3.0
 
 
 def test_dry_run_prints_all_conditions(monkeypatch, capsys):
