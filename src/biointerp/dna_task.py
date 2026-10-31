@@ -11,7 +11,12 @@ DNA_CHARS = set("ACGTN")
 
 
 def _as_ids(encoded) -> List[int]:
-    ids = encoded["input_ids"] if isinstance(encoded, dict) else encoded
+    if hasattr(encoded, "input_ids"):
+        ids = encoded.input_ids
+    elif isinstance(encoded, dict) and "input_ids" in encoded:
+        ids = encoded["input_ids"]
+    else:
+        ids = encoded
     if torch.is_tensor(ids):
         ids = ids.tolist()
     if ids and isinstance(ids[0], list):
