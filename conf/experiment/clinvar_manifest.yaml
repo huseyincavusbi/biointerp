@@ -1,0 +1,5 @@
+module: biointerp.experiments.clinvar_manifest
+model_key: false
+args:
+- --n
+- '100'
