@@ -3,6 +3,13 @@ import pytest
 from biointerp import cli
 
 
+def test_version(capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["--version"])
+    assert exc.value.code == 0
+    assert "biointerp 0.1.0" in capsys.readouterr().out
+
+
 def test_list_models(capsys):
     assert cli.main(["list", "models"]) == 0
     out = capsys.readouterr().out

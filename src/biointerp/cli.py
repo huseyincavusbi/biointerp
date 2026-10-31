@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import sys
 
+from . import __version__
 from .runner import run, run_grid
 
 
@@ -20,6 +21,7 @@ def _parse_set(items):
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="biointerp", description=__doc__)
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     run_p = sub.add_parser("run", help="run one experiment")
