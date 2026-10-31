@@ -60,6 +60,13 @@ def token_spans(sequence: str, tokenizer, adapter: str) -> List[Tuple[int, int] 
             cursor += length
         else:
             spans.append(None)
+    if cursor > len(sequence):
+        # Carbon's tokenizer pads a short tail into a full 6-mer. The last DNA
+        # token still represents the true tail, so clip its span to the sequence.
+        last_dna = max((i for i, span in enumerate(spans) if span is not None), default=None)
+        if adapter == "carbon" and last_dna is not None and cursor - len(sequence) < 6:
+            spans[last_dna] = (spans[last_dna][0], len(sequence))
+            cursor = len(sequence)
     if cursor != len(sequence):
         raise ValueError(
             f"tokenizer covered {cursor} bases but sequence has {len(sequence)}; "

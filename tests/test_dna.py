@@ -10,6 +10,7 @@ from _fake_dna_models import (
     FakeDnaBert,
     FakeDnaTokenizer,
     FakeKmerTokenizer,
+    FakePaddedKmerTokenizer,
 )
 
 from biointerp import dna, models
@@ -151,6 +152,12 @@ def test_kmer_spans_and_variant_index():
     assert variant_token_index(spans, 7) == 2
     with pytest.raises(ValueError):
         variant_token_index(spans, 10)
+
+
+def test_carbon_tail_padding_is_clipped():
+    spans = token_spans("ACGTACGTAA", FakePaddedKmerTokenizer(), "carbon")
+    assert spans == [None, (0, 6), (6, 10), None]
+    assert variant_token_index(spans, 9) == 2
 
 
 def test_single_nucleotide_spans():
