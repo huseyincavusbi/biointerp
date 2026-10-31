@@ -64,6 +64,10 @@ def get_ffn_output_proj(layer, adapter: str):
         if proj is not None:
             return proj
     elif adapter == "dnabert":
+        mlp = getattr(layer, "mlp", None)
+        proj = getattr(mlp, "wo", None) if mlp is not None else None
+        if proj is not None:
+            return proj
         output = getattr(layer, "output", None)
         proj = getattr(output, "dense", None) if output is not None else None
         if proj is not None:
@@ -127,6 +131,24 @@ def load_dna_model(spec: dict, device: Optional[str] = None):
     return model, tokenizer, dev
 
 
+def _gather_token_states(
+    tensor: torch.Tensor, positions: torch.Tensor, attention_mask: torch.Tensor
+):
+    """Gather token states from padded ``(B, L, D)`` or packed ``(N, D)`` tensors."""
+    if tensor.dim() == 3:
+        batch = positions.shape[0]
+        b_idx = torch.arange(batch).unsqueeze(1)
+        return tensor[b_idx, positions]
+    lengths = attention_mask.sum(dim=1).tolist()
+    offsets = []
+    total = 0
+    for length in lengths:
+        offsets.append(total)
+        total += int(length)
+    flat = [offsets[b] + p for b in range(positions.shape[0]) for p in positions[b].tolist()]
+    return tensor[torch.tensor(flat, dtype=torch.long)]
+
+
 @torch.inference_mode()
 def extract_cett(
     model,
@@ -142,11 +164,15 @@ def extract_cett(
     positions = positions.to(tokens["input_ids"].device)
     batch = positions.shape[0]
     b_idx = torch.arange(batch, device=positions.device).unsqueeze(1)
-    b_idx_cpu = torch.arange(batch).unsqueeze(1)
     positions_cpu = positions.cpu()
+    attention_mask = tokens.get("attention_mask")
+    if attention_mask is None:
+        attention_mask = torch.ones_like(tokens["input_ids"])
+    attention_cpu = attention_mask.cpu()
 
     z_cache: Dict[int, torch.Tensor] = {}
     h_cache: Dict[int, torch.Tensor] = {}
+    hidden_cache: Dict[int, torch.Tensor] = {}
     handles = []
 
     def make_hook(idx: int):
@@ -157,30 +183,47 @@ def extract_cett(
 
         return hook
 
+    def make_hidden_hook(idx: int):
+        def hook(module, inputs, output):
+            hidden = output[0] if isinstance(output, tuple) else output
+            hidden_cache[idx] = hidden.detach().float().cpu()
+            return output
+
+        return hook
+
     for i in layers:
         handles.append(get_ffn_output_proj(blocks[i], adapter).register_forward_hook(make_hook(i)))
+    if capture_hidden:
+        for i in range(len(blocks)):
+            handles.append(blocks[i].register_forward_hook(make_hidden_hook(i)))
     try:
-        out = model(**tokens, output_hidden_states=capture_hidden)
+        out = model(**tokens)
     finally:
         for handle in handles:
             handle.remove()
 
     cett_parts = []
     for i in layers:
-        z = z_cache[i][b_idx_cpu, positions_cpu]
-        h = h_cache[i][b_idx_cpu, positions_cpu]
+        z = _gather_token_states(z_cache[i], positions_cpu, attention_cpu).reshape(
+            batch * positions.shape[1], -1
+        )
+        h = _gather_token_states(h_cache[i], positions_cpu, attention_cpu).reshape(
+            batch * positions.shape[1], -1
+        )
         cett_parts.append(torch.abs(z) * col_norms[i] / (h.norm(dim=-1, keepdim=True) + 1e-8))
     cett = torch.cat(cett_parts, dim=-1)
 
     logits = out.logits[b_idx, positions]
     result = {
-        "cett": cett.reshape(batch * positions.shape[1], -1),
+        "cett": cett,
         "logits": logits.reshape(batch * positions.shape[1], -1).float().cpu(),
     }
     if capture_hidden:
         result["hidden_states"] = [
-            hidden[b_idx_cpu, positions_cpu].reshape(batch * positions.shape[1], -1).float().cpu()
-            for hidden in out.hidden_states
+            _gather_token_states(hidden_cache[i], positions_cpu, attention_cpu).reshape(
+                batch * positions.shape[1], -1
+            )
+            for i in range(len(blocks))
         ]
     return result
 

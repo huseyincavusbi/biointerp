@@ -151,7 +151,7 @@ def test_masked_cett_captures_hidden_states():
         model, tokens, positions, layers, norms, "dnabert", capture_hidden=True
     )
 
-    assert len(result["hidden_states"]) == 4
+    assert len(result["hidden_states"]) == 3
     assert result["hidden_states"][0].shape == (2, 16)
 
 
