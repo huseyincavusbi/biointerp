@@ -113,6 +113,11 @@ def test_load_carbon_4bit_uses_quantization_config(monkeypatch):
         calls.update(kwargs)
         return FakeCarbon(hidden=8, intermediate=12, n_layers=1)
 
+    class FakeBitsAndBytesConfig:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    monkeypatch.setattr(transformers, "BitsAndBytesConfig", FakeBitsAndBytesConfig)
     monkeypatch.setattr(transformers.AutoModelForCausalLM, "from_pretrained", fake_model)
     spec = {
         "adapter": "carbon",
