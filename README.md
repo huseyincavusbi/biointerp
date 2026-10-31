@@ -1,10 +1,21 @@
 # biointerp
 
+[![PyPI](https://img.shields.io/pypi/v/biointerp.svg)](https://pypi.org/project/biointerp/)
+[![Tests](https://github.com/huseyincavusbi/biointerp/actions/workflows/tests.yml/badge.svg)](https://github.com/huseyincavusbi/biointerp/actions/workflows/tests.yml)
+
 Mechanistic interpretability experiments for protein language models: CETT error-neuron extraction, probing, causal interventions, and variant-effect analysis.
 
 > Research alpha. APIs and configs may change.
 
 ## Install
+
+```bash
+pip install biointerp
+# or
+uv add biointerp
+```
+
+For development:
 
 ```bash
 git clone https://github.com/huseyincavusbi/biointerp.git
@@ -17,9 +28,9 @@ Python 3.11+. Models download from Hugging Face on first use.
 ## Quickstart
 
 ```bash
-uv run biointerp list models
-uv run biointerp list experiments
-uv run biointerp run probing_classifier --model esm2_8m --set n=50
+biointerp list models
+biointerp list experiments
+biointerp run probing_classifier --model esm2_8m --set n=50
 ```
 
 Results go to `outputs/<experiment>/<timestamp>/`.
