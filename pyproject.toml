@@ -6,6 +6,7 @@ build-backend = "hatchling.build"
 name = "biointerp"
 version = "0.1.0"
 description = "Mechanistic interpretability experiments for protein language models"
+readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Huseyin Cavus", email = "huseyincavus@proton.me" }]

@@ -17,7 +17,8 @@ build/
 dist/
 *.egg-info/
 
-# No markdown or documentation files in this repository.
+# No markdown or documentation files in this repository, except the README.
 *.md
+!README.md
 docs/
 mkdocs.yml
