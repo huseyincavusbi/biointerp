@@ -43,6 +43,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--model-key", default="carbon_x_4bit")
     p.add_argument("--dataset", default="clinvar_vep", help="conf/dataset/<name>.yaml")
     p.add_argument("--data", default=None, help="optional local parquet/CSV override")
+    p.add_argument("--manifest", default=None, help="ClinVar manifest JSON")
     p.add_argument("--n", type=int, default=50)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--condition", default="all", choices=("all", *CONDITIONS))
@@ -63,6 +64,7 @@ def load_variants(
     data: str | None,
     n: int,
     seed: int,
+    manifest: str | None = None,
 ) -> tuple[list[dict], dict]:
     cfg = load_dataset_config(dataset) if dataset else {}
     if data:
@@ -83,9 +85,40 @@ def load_variants(
     chrom_col = cfg.get("chrom_column", "chromosome")
     gene_col = cfg.get("gene_column")
 
-    sample = frame.sample(n=min(n, len(frame)), random_state=seed)
+    rows = []
+    if manifest:
+        meta = json.loads(Path(manifest).read_text())
+        wanted = {
+            (
+                str(item["chrom"]),
+                int(item["position"]),
+                str(item["ref"]).upper(),
+                str(item["alt"]).upper(),
+            ): item
+            for item in meta["variants"]
+        }
+        found = {}
+        for _, row in frame.iterrows():
+            key = (
+                str(row[chrom_col]),
+                int(row["position"]),
+                str(row["ref"]).upper(),
+                str(row["alt"]).upper(),
+            )
+            if key in wanted:
+                found[key] = row
+        missing = [key for key in wanted if key not in found]
+        if missing:
+            raise SystemExit(
+                f"manifest variants missing from dataset: {missing[:3]} ({len(missing)} total)"
+            )
+        rows = [found[key] for key in wanted]
+    else:
+        sample = frame.sample(n=min(n, len(frame)), random_state=seed)
+        rows = [row for _, row in sample.iterrows()]
+
     variants = []
-    for i, (_, row) in enumerate(sample.iterrows()):
+    for i, row in enumerate(rows):
         ref = str(row[ref_col]).upper()
         alt = str(row[alt_col]).upper()
         if len(ref) != len(alt) or len(ref) < 2:
@@ -124,7 +157,7 @@ def _read_done(path: Path) -> set[tuple[int, str]]:
 def main() -> None:
     args = parse_args()
     conditions = CONDITIONS if args.condition == "all" else (args.condition,)
-    variants, _ = load_variants(args.dataset, args.data, args.n, args.seed)
+    variants, _ = load_variants(args.dataset, args.data, args.n, args.seed, manifest=args.manifest)
 
     spec = get_spec(args.model_key)
     started = time.time()
