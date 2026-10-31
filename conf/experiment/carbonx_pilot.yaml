@@ -6,3 +6,4 @@ args:
 - --n
 - '50'
 - --attention
+- --probability
