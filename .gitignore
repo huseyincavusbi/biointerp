@@ -17,4 +17,7 @@ build/
 dist/
 *.egg-info/
 
-# Personal application documents (not for the code repo)
+# No markdown or documentation files in this repository.
+*.md
+docs/
+mkdocs.yml

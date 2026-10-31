@@ -30,7 +30,6 @@ evolution = ["metapredict"]
 
 [dependency-groups]
 dev = ["pytest>=8.0", "ruff>=0.4", "pre-commit>=4.0"]
-docs = ["mkdocs>=1.5.0", "mkdocs-material>=9.4.0", "mkdocstrings[python]>=0.23.0"]
 
 [project.scripts]
 biointerp = "biointerp.cli:main"
