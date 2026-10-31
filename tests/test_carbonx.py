@@ -1,0 +1,70 @@
+import sys
+
+from biointerp.carbonx import CONDITIONS, build_messages, dna_segments, variant_indices
+
+
+class _Tok:
+    def convert_ids_to_tokens(self, ids):
+        return ["<dna>", "ACGTAC", "GT", "</dna>", "<dna>", "ACGTAC", "GA", "</dna>"]
+
+
+def test_build_messages_conditions():
+    dna_only = build_messages("ACGT", "ACGA", "dna_only")[0]["content"]
+    assert "<dna>ACGT</dna>" in dna_only
+    assert "Gene:" not in dna_only
+
+    correct = build_messages("ACGT", "ACGA", "correct_gene")[0]["content"]
+    assert "Gene: BRCA1" in correct
+    assert "<dna>" in correct
+
+    wrong = build_messages("ACGT", "ACGA", "wrong_gene")[0]["content"]
+    assert "Gene: TP53" in wrong
+
+    irrelevant = build_messages("ACGT", "ACGA", "irrelevant_text")[0]["content"]
+    assert "weather" in irrelevant
+    assert "<dna>" in irrelevant
+
+    english = build_messages("ACGT", "ACGA", "english_only")[0]["content"]
+    assert "BRCA1" in english
+    assert "<dna>" not in english
+
+    assert set(CONDITIONS) == {
+        "dna_only",
+        "correct_gene",
+        "wrong_gene",
+        "irrelevant_text",
+        "english_only",
+    }
+
+
+def test_dna_segments_and_variant_indices():
+    segments = dna_segments(_Tok(), list(range(8)))
+    assert len(segments) == 2
+    assert segments[0]["spans"] == [(0, 6), (6, 8)]
+    assert segments[1]["spans"] == [(0, 6), (6, 8)]
+    assert variant_indices(segments, 7) == (1, 1)
+    assert variant_indices(segments, 2) == (0, 0)
+
+
+def test_dry_run_prints_all_conditions(monkeypatch, capsys):
+    from biointerp.experiments import carbonx_context
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "carbonx_context",
+            "--ref",
+            "ACGTACGT",
+            "--alt",
+            "ACGTACGA",
+            "--condition",
+            "all",
+            "--dry-run",
+        ],
+    )
+    carbonx_context.main()
+    out = capsys.readouterr().out
+    for condition in CONDITIONS:
+        assert f"=== {condition} ===" in out
+    assert "<dna>ACGTACGT</dna>" in out
