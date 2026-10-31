@@ -131,6 +131,8 @@ def extract_cett(
     positions = positions.to(tokens["input_ids"].device)
     batch = positions.shape[0]
     b_idx = torch.arange(batch, device=positions.device).unsqueeze(1)
+    b_idx_cpu = torch.arange(batch).unsqueeze(1)
+    positions_cpu = positions.cpu()
 
     z_cache: Dict[int, torch.Tensor] = {}
     h_cache: Dict[int, torch.Tensor] = {}
@@ -154,15 +156,15 @@ def extract_cett(
 
     cett_parts = []
     for i in layers:
-        z = z_cache[i][b_idx, positions]
-        h = h_cache[i][b_idx, positions]
+        z = z_cache[i][b_idx_cpu, positions_cpu]
+        h = h_cache[i][b_idx_cpu, positions_cpu]
         cett_parts.append(torch.abs(z) * col_norms[i] / (h.norm(dim=-1, keepdim=True) + 1e-8))
     cett = torch.cat(cett_parts, dim=-1)
 
     logits = out.logits[b_idx, positions]
     return {
         "cett": cett.reshape(batch * positions.shape[1], -1),
-        "logits": logits.reshape(batch * positions.shape[1], -1),
+        "logits": logits.reshape(batch * positions.shape[1], -1).float().cpu(),
     }
 
 

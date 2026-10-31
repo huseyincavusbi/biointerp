@@ -102,7 +102,7 @@ class FakeKmerTokenizer:
         return {"input_ids": [self._id(text[i : i + 6]) for i in range(0, len(text), 6)]}
 
     def convert_ids_to_tokens(self, ids) -> list[str]:
-        return [self._id_to_token[int(i)] for i in ids]
+        return [self._id_to_token.get(int(i), f"<unk:{int(i)}>") for i in ids]
 
 
 class _FakeBertLayer(nn.Module):

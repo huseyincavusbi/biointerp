@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 import torch
 from _fake_dna_models import (
@@ -12,6 +14,7 @@ from _fake_dna_models import (
 from biointerp import dna, models
 from biointerp.dna import reverse_complement
 from biointerp.dna_task import (
+    _as_ids,
     causal_dna_batch,
     dna_token_positions,
     masked_dna_batch,
@@ -69,6 +72,11 @@ def test_col_norms_shapes():
         0: (12,),
         1: (12,),
     }
+
+
+def test_as_ids_accepts_batch_encoding_like_objects():
+    assert _as_ids(SimpleNamespace(input_ids=[[1, 2, 3]])) == [1, 2, 3]
+    assert _as_ids({"input_ids": torch.tensor([[4, 5]])}) == [4, 5]
 
 
 def test_kmer_spans_and_variant_index():
