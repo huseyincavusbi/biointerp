@@ -1,0 +1,6 @@
+adapter: carbon
+modality: dna
+hf_id: HuggingFaceBio/Carbon-500M
+tokenizer: 6mer
+objective: causal
+context: 8192

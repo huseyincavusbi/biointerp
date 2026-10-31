@@ -11,7 +11,7 @@ def test_registry_has_expected_models():
 
 
 def test_all_registered_adapters_are_supported():
-    supported = {"esm", "esmc", "gen"}
+    supported = {"esm", "esmc", "gen", "carbon", "dnabert"}
     bad = {key: spec["adapter"] for key, spec in models.registry().items()}
     bad = {key: adapter for key, adapter in bad.items() if adapter not in supported}
     assert bad == {}
@@ -34,7 +34,9 @@ def test_get_spec_by_hf_id_includes_key():
 
 
 def test_registry_defaults_modality_to_protein():
-    assert {spec["modality"] for spec in models.registry().values()} == {"protein"}
+    reg = models.registry()
+    assert reg["esm2_8m"]["modality"] == "protein"
+    assert reg["carbon_500m"]["modality"] == "dna"
 
 
 def test_registry_keeps_full_spec(monkeypatch, tmp_path):
