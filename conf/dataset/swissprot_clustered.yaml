@@ -1,0 +1,21 @@
+name: swissprot_clustered
+description: Swiss-Prot sample split by MMseqs2 homology clusters
+source: uniprot
+query: "reviewed:true AND length:[50 TO 500]"
+n: 2000
+min_len: 50
+max_len: 500
+seed: 0
+local_path: data/swissprot_n2000_len50-500_seed0.fasta
+clustering:
+  min_seq_id: 0.3
+  coverage: 0.8
+  cluster_mode: connected_component
+  threads: 4
+core_assays:
+  - SDA_BACSU
+  - MTHR_HUMAN
+  - S22A1_HUMAN
+  - MSH2_HUMAN
+  - PPARG_HUMAN
+  - PAI1_HUMAN
