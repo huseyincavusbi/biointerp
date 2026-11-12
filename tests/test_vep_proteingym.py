@@ -67,8 +67,21 @@ def test_main_writes_metrics_and_predictions(monkeypatch, tmp_path):
 
     preds = (tmp_path / "vep_proteingym_TEST.predictions.jsonl").read_text().splitlines()
     assert len(preds) == len(frame)
-    record = json.loads(preds[0])
-    assert set(record) == {"mutant", "score", "dms_score", "correct", "confidence"}
+    records = [json.loads(line) for line in preds]
+    assert set(records[0]) == {
+        "mutant",
+        "score",
+        "dms_score",
+        "correct",
+        "confidence",
+        "probe_score",
+        "split",
+    }
+    test_records = [record for record in records if record["split"] == "test"]
+    train_records = [record for record in records if record["split"] == "train"]
+    assert len(test_records) == round(len(frame) * 0.3)
+    assert all(record["probe_score"] is not None for record in test_records)
+    assert all(record["probe_score"] is None for record in train_records)
 
 
 def test_main_skips_assay_with_too_few_substitutions(monkeypatch, tmp_path):
