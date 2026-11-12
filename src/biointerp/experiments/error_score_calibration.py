@@ -13,6 +13,7 @@ import json
 import time
 from pathlib import Path
 
+import joblib
 import numpy as np
 
 from biointerp.calibration import (
@@ -20,7 +21,7 @@ from biointerp.calibration import (
     percentile_ci,
     reliability_curve,
 )
-from biointerp.core import DEFAULT_NPZ, RESULTS_DIR, top_probe_scores
+from biointerp.core import DEFAULT_NPZ, RESULTS_DIR, apply_probe, fit_top_probe
 
 
 def parse_args() -> argparse.Namespace:
@@ -66,6 +67,8 @@ def load_test_rows(npz: str, assignments: str):
         confidence_keep,
         train,
         is_test,
+        data["layers"].tolist(),
+        str(data["model"]),
     )
 
 
@@ -137,8 +140,11 @@ def main() -> None:
     args = parse_args()
     started = time.time()
 
-    x, y, protein, confidence, train, test = load_test_rows(args.npz, args.assignments)
-    scores, _ = top_probe_scores(x[train], y[train], x[test], top_k=args.top_k, seed=args.seed)
+    x, y, protein, confidence, train, test, layers, model_name = load_test_rows(
+        args.npz, args.assignments
+    )
+    scaler, clf, idx = fit_top_probe(x[train], y[train], top_k=args.top_k, seed=args.seed)
+    scores = apply_probe(scaler, clf, idx, x[test])
     y_test = y[test]
     groups = protein[test]
     error_score = scores
@@ -177,6 +183,21 @@ def main() -> None:
 
     out = Path(args.out) if args.out else RESULTS_DIR / "error_score_calibration.json"
     out.write_text(json.dumps(result, indent=2) + "\n")
+
+    artifact_path = RESULTS_DIR / "error_probe.joblib"
+    joblib.dump(
+        {
+            "model": model_name,
+            "layers": layers,
+            "top_k": args.top_k,
+            "seed": args.seed,
+            "idx": idx,
+            "scaler": scaler,
+            "clf": clf,
+            "reference_scores": [round(float(value), 6) for value in scores],
+        },
+        artifact_path,
+    )
     plot_reliability(args.figure, y_test, error_score, confidence_error)
 
     print(f"test rows: {result['n_test']} | base error rate {error_summary['base_rate']:.3f}")
