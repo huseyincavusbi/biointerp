@@ -44,6 +44,16 @@ def main(argv=None) -> int:
     list_p = sub.add_parser("list", help="list known experiments, models or datasets")
     list_p.add_argument("kind", choices=["experiments", "models", "datasets"])
 
+    score_p = sub.add_parser("score", help="score one variant with a saved error probe")
+    score_p.add_argument("--sequence", default=None, help="protein sequence")
+    score_p.add_argument("--fasta", default=None, help="FASTA file with the sequence")
+    score_p.add_argument("--id", default=None, help="record id inside --fasta")
+    score_p.add_argument("--mutation", required=True, help="variant, e.g. E30T")
+    score_p.add_argument("--probe", default=None, help="saved probe artifact")
+    score_p.add_argument("--model", default=None, help="override the model id")
+    score_p.add_argument("--device", default=None)
+    score_p.add_argument("--json", action="store_true", help="print JSON")
+
     args = parser.parse_args(argv)
 
     if args.command == "run":
@@ -71,6 +81,14 @@ def main(argv=None) -> int:
             names = sorted(p.stem for p in (CONF_DIR / "dataset").glob("*.yaml"))
         print("\n".join(names))
         return 0
+
+    if args.command == "score":
+        from .core import RESULTS_DIR
+        from .score import score_main
+
+        if args.probe is None:
+            args.probe = str(RESULTS_DIR / "error_probe.joblib")
+        return score_main(args)
     return 2
 
 
