@@ -59,8 +59,8 @@ def load_sequences(path) -> list[str]:
     return sequences
 
 
-def top_probe_scores(x_tr, y_tr, x_te, top_k: int, seed: int = 0):
-    """Univariate-AUROC top-k selection + logistic probe; returns test scores + idx."""
+def fit_top_probe(x_tr, y_tr, top_k: int, seed: int = 0):
+    """Fit the top-k univariate-AUROC logistic probe; returns scaler, clf, idx."""
     from sklearn.linear_model import LogisticRegression
     from sklearn.preprocessing import StandardScaler
 
@@ -70,5 +70,16 @@ def top_probe_scores(x_tr, y_tr, x_te, top_k: int, seed: int = 0):
     xt = scaler.fit_transform(x_tr[:, idx])
     clf = LogisticRegression(class_weight="balanced", max_iter=2000, random_state=seed)
     clf.fit(xt, y_tr)
-    scores = clf.predict_proba(scaler.transform(x_te[:, idx]))[:, 1]
+    return scaler, clf, idx
+
+
+def apply_probe(scaler, clf, idx, x):
+    """Apply a fitted probe to a feature matrix."""
+    return clf.predict_proba(scaler.transform(x[:, idx]))[:, 1]
+
+
+def top_probe_scores(x_tr, y_tr, x_te, top_k: int, seed: int = 0):
+    """Univariate-AUROC top-k selection + logistic probe; returns test scores + idx."""
+    scaler, clf, idx = fit_top_probe(x_tr, y_tr, top_k=top_k, seed=seed)
+    scores = apply_probe(scaler, clf, idx, x_te)
     return scores, idx
