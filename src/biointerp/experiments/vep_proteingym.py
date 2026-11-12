@@ -181,9 +181,9 @@ def main() -> None:
     scaler = StandardScaler()
     clf = LogisticRegression(class_weight="balanced", max_iter=2000, random_state=args.seed)
     clf.fit(scaler.fit_transform(X[tr][:, idx]), y[tr])
-    auroc_probe = float(
-        roc_auc_score(y[te], clf.predict_proba(scaler.transform(X[te][:, idx]))[:, 1])
-    )
+    probe_scores = np.full(n, np.nan)
+    probe_scores[te] = clf.predict_proba(scaler.transform(X[te][:, idx]))[:, 1]
+    auroc_probe = float(roc_auc_score(y[te], probe_scores[te]))
     auroc_conf = float(roc_auc_score(y[te], -conf[te]))
     print(f"AUROC probe (top-{args.top_k} CETT): {auroc_probe:.4f}")
     print(f"AUROC confidence:                   {auroc_conf:.4f}")
@@ -217,6 +217,10 @@ def main() -> None:
                         "dms_score": round(dms[i], 4),
                         "correct": bool(correct_all[i]),
                         "confidence": round(conf[i], 4),
+                        "probe_score": (
+                            None if np.isnan(probe_scores[i]) else round(float(probe_scores[i]), 6)
+                        ),
+                        "split": "test" if te[i] else "train",
                     }
                 )
                 + "\n"
