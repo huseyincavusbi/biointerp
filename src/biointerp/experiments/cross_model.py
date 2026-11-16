@@ -1,113 +1,115 @@
-"""Cross-model replication on ESMC-600M (Bio-Interp).
+"""Cross-model replication of error-neuron probes.
 
-Runs the core pipeline (masked-residue task -> CETT -> probe) on the 2026 frontier open
-model via the official esm SDK. Compares against the ESM-2 650M results.
+This is a thin CLI over ``biointerp.replication`` and ``biointerp.adapters``.
+The runner is modality-agnostic; new modalities only need a ModelAdapter.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import random
-import sys
 import time
 from pathlib import Path
 
 import numpy as np
-from sklearn.metrics import roc_auc_score
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-
-from biointerp.core import DEFAULT_FASTA, RESULTS_DIR, load_sequences, univariate_auroc
-from biointerp.esmc import AA_ALPHABET, extract_cett_sequence, load_esmc, precompute_col_norms
+from biointerp.adapters import build_adapter
+from biointerp.core import DEFAULT_FASTA, DEFAULT_NPZ, RESULTS_DIR, load_sequences
+from biointerp.replication import (
+    analyze,
+    extract_features,
+    load_reference,
+    load_split,
+)
 
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--model", default="biohub/ESMC-600M")
-    p.add_argument("--model-key", default=None, help="registry key (overrides --model)")
-    p.add_argument("--dtype", default=None, help="bf16 for large models")
-    p.add_argument("--device-map", default=None, help="e.g. auto for multi-GPU")
-    p.add_argument("--n", type=int, default=100)
+    p.add_argument("--model-key", default="esmc_600m", help="registry key or HF id")
+    p.add_argument("--reference-npz", default=str(DEFAULT_NPZ))
+    p.add_argument("--assignments", default=str(RESULTS_DIR / "split_assignments.tsv"))
+    p.add_argument("--n", type=int, default=0, help="0 uses every reference row")
     p.add_argument("--top-k", type=int, default=25)
-    p.add_argument("--test-frac", type=float, default=0.2)
+    p.add_argument("--bootstrap", type=int, default=1000)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--device", default=None)
+    p.add_argument("--dtype", default=None)
+    p.add_argument("--device-map", default=None, help="e.g. auto for multi-GPU")
+    p.add_argument("--cached-features", default=None, help="skip extraction and reuse an npz")
+    p.add_argument("--out", default=str(RESULTS_DIR / "cross_model_cluster.json"))
+    p.add_argument("--features-out", default=str(RESULTS_DIR / "cross_model_features.npz"))
     return p.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    if args.model_key:
-        from biointerp.models import resolve_id
+    started = time.time()
 
-        args.model = resolve_id(args.model_key)
-    from sklearn.linear_model import LogisticRegression
-    from sklearn.preprocessing import StandardScaler
+    reference = load_reference(args.reference_npz, args.n)
+    n = len(reference["position"])  # type: ignore[arg-type]
+    sequences = load_sequences(DEFAULT_FASTA)[:n]
+    ids = [f"seq{index}" for index in range(n)]
+    keep, is_test = load_split(args.assignments, ids)
 
-    sequences = load_sequences(DEFAULT_FASTA)[: args.n]
-    model, tokenizer, device = load_esmc(args.model, args.device, args.dtype, args.device_map)
-    col_norms = precompute_col_norms(model)
-    rng = random.Random(args.seed)
-
-    feats, correct, conf = [], [], []
-    t0 = time.time()
-    for i, seq in enumerate(sequences):
-        p = rng.randrange(1, len(seq) - 1)
-        cett, probs = extract_cett_sequence(model, tokenizer, seq, [p], col_norms)
-        probs_np = probs.numpy()[0]
-        pred = AA_ALPHABET[int(probs_np.argmax())]
-        feats.append(cett[0].numpy().astype(np.float16))
-        correct.append(pred == seq[p])
-        conf.append(float(probs_np.max()))
-        if (i + 1) % 20 == 0 or i + 1 == len(sequences):
-            print(
-                f"seq {i + 1}/{len(sequences)} | acc so far {np.mean(correct):.4f} | {time.time() - t0:.0f}s"
-            )
-
-    X = np.stack(feats).astype(np.float32)
-    y = (~np.array(correct)).astype(int)
-    conf = np.array(conf)
-    n = len(y)
-    rng_np = np.random.default_rng(args.seed)
-    perm = rng_np.permutation(n)
-    n_test = max(1, int(round(n * args.test_frac)))
-    te = np.zeros(n, dtype=bool)
-    te[perm[:n_test]] = True
-    tr = ~te
-    print(f"\nsamples: {n} | accuracy {1 - y.mean():.4f} | features {X.shape[1]} | device {device}")
-
-    au = univariate_auroc(X[tr], y[tr])
-    idx = np.argsort(au)[::-1][: args.top_k]
-    scaler = StandardScaler()
-    clf = LogisticRegression(class_weight="balanced", max_iter=2000, random_state=args.seed)
-    clf.fit(scaler.fit_transform(X[tr][:, idx]), y[tr])
-    auroc_probe = float(
-        roc_auc_score(y[te], clf.predict_proba(scaler.transform(X[te][:, idx]))[:, 1])
+    adapter = build_adapter(args.model_key, args.device, args.dtype, args.device_map)
+    print(
+        f"adapter: {adapter.name} | layers: {adapter.n_layers} | "
+        f"intermediate: {adapter.intermediate} | rows: {n}"
     )
-    auroc_conf = float(roc_auc_score(y[te], -conf[te]))
-    print(f"AUROC probe (top-{args.top_k} CETT): {auroc_probe:.4f}")
-    print(f"AUROC confidence:                   {auroc_conf:.4f}")
 
-    out = RESULTS_DIR / "cross_model.json"
-    out.write_text(
-        json.dumps(
-            {
-                "model": args.model,
-                "n": n,
-                "accuracy": round(float(1 - y.mean()), 4),
-                "features": int(X.shape[1]),
-                "top_k": args.top_k,
-                "device": device,
-                "auroc_probe": round(auroc_probe, 4),
-                "auroc_confidence": round(auroc_conf, 4),
-                "reference_esm2_650m_probe": 0.7542,
-            },
-            indent=2,
-        )
-        + "\n"
+    if args.cached_features:
+        cached = np.load(args.cached_features, allow_pickle=True)
+        if not np.array_equal(cached["position"], reference["position"]):
+            raise SystemExit("cached features use different masked positions")
+        extracted = {
+            "cett": cached["cett"].astype(np.float32),
+            "correct": cached["correct"].astype(bool),
+            "confidence": cached["confidence"].astype(float),
+            "pred_aa": cached["pred_aa"],
+        }
+        print(f"using cached features: {args.cached_features}")
+    else:
+        extracted = extract_features(reference, sequences, adapter)
+
+    result = analyze(
+        reference,
+        extracted,
+        keep,
+        is_test,
+        adapter,
+        top_k=args.top_k,
+        bootstrap=args.bootstrap,
+        seed=args.seed,
     )
-    print(f"saved: {out}")
+    result["positions"] = "same masked positions as the reference"
+    result["features_out"] = args.features_out
+    result["elapsed_s"] = round(time.time() - started, 1)
+
+    Path(args.features_out).parent.mkdir(parents=True, exist_ok=True)
+    np.savez(
+        args.features_out,
+        cett=extracted["cett"].astype(np.float16),
+        correct=extracted["correct"],
+        confidence=extracted["confidence"],
+        position=reference["position"],
+        true_aa=np.asarray(reference["true_token"]),
+        pred_aa=np.asarray(extracted["pred_aa"]),
+        protein=reference["protein"],
+        model=adapter.name,
+    )
+
+    Path(args.out).write_text(json.dumps(result, indent=2) + "\n")
+    print(
+        f"{adapter.name} AUROC {result['adapter']['auroc_probe']:.4f} "
+        f"{result['adapter']['ci95']} vs reference "
+        f"{result['reference']['auroc_probe']:.4f} {result['reference']['ci95']}"
+    )
+    print(
+        f"score rho {result['comparison']['score_spearman']:.3f} | "
+        f"layer profile r {result['comparison']['layer_profile_pearson']:.3f} | "
+        f"layer histogram r {result['comparison']['layer_histogram_pearson']:.3f}"
+    )
+    print(f"saved: {args.out}")
 
 
 if __name__ == "__main__":
