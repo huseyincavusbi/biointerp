@@ -92,3 +92,20 @@ def test_extract_cett_sequence_matches_manual_formula():
             parts.append(z.abs() * norms[i] / h_norm)
         expected = torch.cat(parts)
         torch.testing.assert_close(cett[m], expected, atol=1e-6, rtol=1e-5)
+
+
+def test_extract_cett_sequence_ignores_token_type_ids():
+    class TokenTypeTokenizer(FakeEsmcTokenizer):
+        def __call__(self, *args, **kwargs):
+            encoded = super().__call__(*args, **kwargs)
+            encoded["token_type_ids"] = torch.zeros_like(encoded["input_ids"])
+            return encoded
+
+    model = FakeEsmcModel(hidden=16, intermediate=24, n_layers=3).eval()
+    tokenizer = TokenTypeTokenizer()
+    norms = esmc.precompute_col_norms(model)
+
+    cett, probs = esmc.extract_cett_sequence(model, tokenizer, "ACDEFG", [1], norms)
+
+    assert cett.shape == (1, 3 * 24)
+    assert probs.shape == (1, 20)

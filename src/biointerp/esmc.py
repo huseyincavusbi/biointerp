@@ -52,10 +52,35 @@ def pick_device(device=None) -> str:
     return "cpu"
 
 
-def load_esmc(model_id: str = "biohub/ESMC-600M", device=None, dtype=None, device_map=None):
-    from transformers import AutoModelForMaskedLM, AutoTokenizer
+def _load_tokenizer(model_id: str):
+    """Load the ESMC tokenizer, falling back to its fast tokenizer JSON.
 
-    tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
+    Transformers 4.x cannot import the custom ``EsmcTokenizer`` class from the
+    model repo. The same vocabulary is available in ``tokenizer.json``.
+    """
+    from transformers import AutoTokenizer
+
+    try:
+        return AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
+    except (ValueError, ImportError, OSError):
+        from huggingface_hub import hf_hub_download
+        from transformers import PreTrainedTokenizerFast
+
+        path = hf_hub_download(model_id, "tokenizer.json")
+        return PreTrainedTokenizerFast(
+            tokenizer_file=path,
+            bos_token="<cls>",
+            eos_token="<eos>",
+            unk_token="<unk>",
+            pad_token="<pad>",
+            mask_token="<mask>",
+        )
+
+
+def load_esmc(model_id: str = "biohub/ESMC-600M", device=None, dtype=None, device_map=None):
+    from transformers import AutoModelForMaskedLM
+
+    tokenizer = _load_tokenizer(model_id)
     kwargs = {"trust_remote_code": True}
     if dtype in ("bf16", "bfloat16"):
         kwargs["dtype"] = torch.bfloat16
@@ -108,8 +133,12 @@ def extract_cett_sequence(
     masked = list(sequence)
     for p in mask_positions:
         masked[p] = ESMC_MASK_STR
-    inputs = tokenizer("".join(masked), return_tensors="pt")
-    inputs = {k: v.to(model.device) for k, v in inputs.items()}
+    encoded = tokenizer("".join(masked), return_tensors="pt")
+    inputs = {
+        key: value.to(model.device)
+        for key, value in encoded.items()
+        if key in {"input_ids", "attention_mask"}
+    }
     ids = inputs["input_ids"][0]
     mask_token_id = tokenizer.mask_token_id
     token_positions = [int(i) for i in (ids == mask_token_id).nonzero(as_tuple=True)[0].tolist()]
