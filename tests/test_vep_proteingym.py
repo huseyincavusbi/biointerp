@@ -44,6 +44,8 @@ def test_main_writes_metrics_and_predictions(monkeypatch, tmp_path):
             "vep",
             "--assay",
             "TEST",
+            "--shard",
+            "0",
             "--n-mutations",
             str(len(frame)),
             "--test-frac",
@@ -89,7 +91,9 @@ def test_main_skips_assay_with_too_few_substitutions(monkeypatch, tmp_path):
     monkeypatch.setattr("huggingface_hub.hf_hub_download", lambda *a, **k: "unused.parquet")
     monkeypatch.setattr(pd, "read_parquet", lambda path: frame)
     monkeypatch.setattr(exp, "RESULTS_DIR", tmp_path)
-    monkeypatch.setattr(sys, "argv", ["vep", "--assay", "TEST", "--n-mutations", "0"])
+    monkeypatch.setattr(
+        sys, "argv", ["vep", "--assay", "TEST", "--shard", "0", "--n-mutations", "0"]
+    )
 
     exp.main()
 

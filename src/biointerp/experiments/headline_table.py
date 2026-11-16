@@ -171,6 +171,16 @@ def assay_row(assay: str, args: argparse.Namespace) -> dict[str, object]:
         "source": str(result_path),
         "status": "summary_only",
     }
+    if {"delta", "delta_ci95", "p_value"} <= payload.keys():
+        row.update(
+            {
+                "estimate": payload["delta"],
+                "ci95": payload["delta_ci95"],
+                "p_value": payload["p_value"],
+                "status": "ok",
+            }
+        )
+        return row
     if not predictions_path.exists():
         return row
 

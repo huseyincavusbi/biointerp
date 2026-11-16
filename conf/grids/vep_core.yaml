@@ -1,0 +1,4 @@
+runs:
+  - experiment: biointerp/experiments/vep_proteingym.py
+    model_key: esm2_650m
+    args: ["--dataset-config", "proteingym"]
