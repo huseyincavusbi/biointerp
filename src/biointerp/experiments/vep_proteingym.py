@@ -63,6 +63,51 @@ def assay_shard(assay: str, override: int | None) -> int:
     return shard.shard
 
 
+def write_summary(
+    dataset,
+    model_key: str,
+    args: argparse.Namespace,
+    summaries: list[dict[str, object]],
+    started: float,
+) -> None:
+    """Merge this run's rows into the persisted summary and recompute BH."""
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    summary_path = RESULTS_DIR / "vep_summary.json"
+    merged: dict[str, dict[str, object]] = {}
+    if summary_path.exists():
+        try:
+            existing = json.loads(summary_path.read_text())
+            for row in existing.get("assays", []):
+                if isinstance(row, dict) and row.get("assay"):
+                    merged[str(row["assay"])] = row
+        except (json.JSONDecodeError, OSError):
+            merged = {}
+    for row in summaries:
+        merged[str(row["assay"])] = row
+
+    rows = list(merged.values())
+    valid = [row for row in rows if row.get("p_value") is not None]
+    if valid:
+        q_values = bh_fdr([float(row["p_value"]) for row in valid])
+        for row, q_value in zip(valid, q_values):
+            row["q_value"] = round(float(q_value), 6)
+
+    summary = {
+        "dataset": dataset.name,
+        "dataset_repo": dataset.repo,
+        "model": model_key,
+        "top_k": args.top_k,
+        "test_frac": args.test_frac,
+        "assays": rows,
+        "wins": sum(1 for row in rows if row["delta_ci95"][0] > 0),
+        "losses": sum(1 for row in rows if row["delta_ci95"][1] < 0),
+        "ties": sum(1 for row in rows if row["delta_ci95"][0] <= 0 <= row["delta_ci95"][1]),
+        "elapsed_s": round(time.time() - started, 1),
+    }
+    summary_path.write_text(json.dumps(summary, indent=2) + "\n")
+    print(f"saved: {summary_path}")
+
+
 def main() -> None:
     args = parse_args()
     started = time.time()
@@ -166,29 +211,9 @@ def main() -> None:
             f"confidence {result['auroc_confidence']:.4f} | "
             f"delta {result['delta']:+.4f} {result['delta_ci95']}"
         )
+        write_summary(dataset, model_key, args, summaries, started)
 
-    valid = [row for row in summaries if row.get("p_value") is not None]
-    if valid:
-        q_values = bh_fdr([float(row["p_value"]) for row in valid])
-        for row, q_value in zip(valid, q_values):
-            row["q_value"] = round(float(q_value), 6)
-
-    summary = {
-        "dataset": dataset.name,
-        "dataset_repo": dataset.repo,
-        "model": model_key,
-        "top_k": args.top_k,
-        "test_frac": args.test_frac,
-        "assays": summaries,
-        "wins": sum(1 for row in summaries if row["delta_ci95"][0] > 0),
-        "losses": sum(1 for row in summaries if row["delta_ci95"][1] < 0),
-        "ties": sum(1 for row in summaries if row["delta_ci95"][0] <= 0 <= row["delta_ci95"][1]),
-        "elapsed_s": round(time.time() - started, 1),
-    }
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    summary_path = RESULTS_DIR / "vep_summary.json"
-    summary_path.write_text(json.dumps(summary, indent=2) + "\n")
-    print(f"saved: {summary_path}")
+    write_summary(dataset, model_key, args, summaries, started)
 
 
 if __name__ == "__main__":
