@@ -54,6 +54,12 @@ def main(argv=None) -> int:
     score_p.add_argument("--device", default=None)
     score_p.add_argument("--json", action="store_true", help="print JSON")
 
+    repro_p = sub.add_parser("repro", help="check the reproducibility contract")
+    repro_p.add_argument("--config", default="conf/repro/headline.yaml")
+    repro_p.add_argument("--out", default="results/repro_metadata.json")
+    repro_p.add_argument("--dry-run", action="store_true")
+    repro_p.add_argument("--check", action="store_true", help="validate results only")
+
     args = parser.parse_args(argv)
 
     if args.command == "run":
@@ -89,6 +95,11 @@ def main(argv=None) -> int:
         if args.probe is None:
             args.probe = str(RESULTS_DIR / "error_probe.joblib")
         return score_main(args)
+
+    if args.command == "repro":
+        from .repro import repro_main
+
+        return repro_main(args)
     return 2
 
 

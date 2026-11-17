@@ -1,0 +1,8 @@
+# Canonical results that must exist and carry their schema before a release.
+results:
+  - path: results/headline_table.json
+    required: [rows, assay_summary, meta]
+  - path: results/vep_summary.json
+    required: [assays, model, meta]
+  - path: results/cross_model_cluster.json
+    required: [adapter, reference, comparison, meta]

@@ -18,6 +18,7 @@ from biointerp.core import RESULTS_DIR
 from biointerp.inference import bh_fdr
 from biointerp.models import get_spec, load_model
 from biointerp.proteingym import from_config
+from biointerp.repro import metadata
 from biointerp.vep import Esm2Scorer, prepare_rows, run_vep
 
 
@@ -98,6 +99,7 @@ def write_summary(
             row["q_value"] = round(float(q_value), 6)
 
     summary = {
+        "meta": metadata(),
         "dataset": dataset.name,
         "dataset_repo": dataset.repo,
         "model": model_key,

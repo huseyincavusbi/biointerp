@@ -21,6 +21,7 @@ from biointerp.replication import (
     load_reference,
     load_split,
 )
+from biointerp.repro import metadata
 
 
 def parse_args() -> argparse.Namespace:
@@ -81,6 +82,7 @@ def main() -> None:
         bootstrap=args.bootstrap,
         seed=args.seed,
     )
+    result["meta"] = metadata()
     result["positions"] = "same masked positions as the reference"
     result["features_out"] = args.features_out
     result["elapsed_s"] = round(time.time() - started, 1)
