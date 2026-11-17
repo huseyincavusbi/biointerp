@@ -25,6 +25,7 @@ from biointerp.inference import (
     paired_bootstrap_delta,
     percentile_ci,
 )
+from biointerp.repro import metadata
 
 CORE_ASSAYS = (
     "SDA_BACSU_Tsuboyama_2023_1PV0",
@@ -245,6 +246,7 @@ def main() -> None:
     pending = sum(1 for row in assay_rows if row.get("ci95") is None)
 
     result = {
+        "meta": metadata(),
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "params": {
             "top_k": args.top_k,
