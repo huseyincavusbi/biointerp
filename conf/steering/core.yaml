@@ -2,7 +2,7 @@ conditions:
   - name: baseline
     direction: none
   - name: true_positive
-    direction: true
+    direction: "true"
     layer: 24
     alpha: 0.3
   - name: true_negative
