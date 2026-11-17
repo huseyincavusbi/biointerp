@@ -1,232 +1,255 @@
-"""VEP on ProteinGym (Bio-Interp utility task).
+"""Variant-effect evaluation on ProteinGym assays.
 
-Masked-marginal zero-shot scoring with ESM-2 650M on a DMS substitution assay.
-Per-mutation correctness = sign agreement with DMS_score_bin; CETT features at the
-mutated position are probed for misprediction. Reports per-assay Spearman as sanity.
+Models come from ``conf/model``, datasets from ``conf/dataset``, and the core
+assay list from ``biointerp.assays``. The experiment loops over assays and
+writes per-assay metrics plus a BH-corrected summary.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import re
-import sys
 import time
-from pathlib import Path
 
 import numpy as np
-import torch
-from scipy.stats import spearmanr
-from sklearn.metrics import roc_auc_score
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-
-from biointerp.core import RESULTS_DIR, univariate_auroc
-from biointerp.esm import (
-    AA_ALPHABET,
-    aa_token_ids,
-    extract_cett_batch,
-    get_transformer_layers,
-    load_model,
-    precompute_col_norms,
-)
-
-MUT_SEG = re.compile(r"^([A-Z])(\d+)([A-Z])$")
+from biointerp.assays import core_names, get_assay
+from biointerp.core import RESULTS_DIR
+from biointerp.inference import bh_fdr
+from biointerp.models import get_spec, load_model
+from biointerp.proteingym import from_config
+from biointerp.vep import Esm2Scorer, prepare_rows, run_vep
 
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--dataset", default="OATML-Markslab/ProteinGym_v1")
-    p.add_argument("--shard", type=int, default=0)
-    p.add_argument("--assay", default="SDA_BACSU_Tsuboyama_2023_1PV0")
-    p.add_argument("--assays", default=None, help="comma-separated assay list (overrides --assay)")
-    p.add_argument("--n-mutations", type=int, default=200)
-    p.add_argument("--model", default="facebook/esm2_t33_650M_UR50D")
-    p.add_argument("--model-key", default=None, help="registry key (overrides --model)")
+    p.add_argument("--dataset-config", default="proteingym", help="conf/dataset key")
+    p.add_argument("--assay", default=None, help="single assay id")
+    p.add_argument("--assays", default=None, help="comma-separated assay ids")
+    p.add_argument("--shard", type=int, default=None, help="override the assay shard")
+    p.add_argument("--n-mutations", type=int, default=None, help="override dataset default")
+    p.add_argument("--model-key", default=None, help="conf/model key (defaults to config)")
     p.add_argument("--top-k", type=int, default=25)
     p.add_argument("--test-frac", type=float, default=0.3)
     p.add_argument("--batch-size", type=int, default=16)
+    p.add_argument("--bootstrap", type=int, default=1000)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--device", default=None)
+    p.add_argument(
+        "--aggregate-only",
+        action="store_true",
+        help="rebuild the summary from saved per-assay JSONs without a model",
+    )
     return p.parse_args()
 
 
-def main() -> None:
-    import pandas as pd
-    from huggingface_hub import hf_hub_download
-    from sklearn.linear_model import LogisticRegression
-    from sklearn.preprocessing import StandardScaler
+def resolve_model_key(value: str | None) -> str:
+    if value:
+        return value
+    from biointerp.runner import load_config
 
-    args = parse_args()
-    if args.model_key:
-        from biointerp.models import resolve_id
+    return str(load_config()["model"])
 
-        args.model = resolve_id(args.model_key)
-    path = hf_hub_download(
-        args.dataset,
-        f"DMS_substitutions/train-0000{args.shard}-of-00005.parquet",
-        repo_type="dataset",
-    )
-    df = pd.read_parquet(path)
-    df = df[df["DMS_id"] == args.assay].reset_index(drop=True)
 
-    def parse_muts(mutant):
-        muts = []
-        for seg in str(mutant).split(":"):
-            m = MUT_SEG.match(seg.strip())
-            if not m:
-                return None
-            muts.append((m.group(1), int(m.group(2)), m.group(3)))
-        return muts
+def selected_assays(args: argparse.Namespace) -> list[str]:
+    if args.assay:
+        return [args.assay]
+    if args.assays:
+        return [name.strip() for name in args.assays.split(",") if name.strip()]
+    return core_names()
 
-    rows = []
-    for _, r in df.iterrows():
-        muts = parse_muts(r["mutant"])
-        if not muts or len(muts) != 1:
-            continue
-        rows.append(
-            {
-                "muts": muts,
-                "score": float(r["DMS_score"]),
-                "bin": float(r["DMS_score_bin"]),
-                "target": str(r["target_seq"]),
-            }
-        )
-    # Sample *after* filtering single substitutions: some assays are dominated
-    # by multi-mutants (e.g. HIS7: 146 single out of 475k), so sampling first
-    # leaves ~0 usable rows.
-    if args.n_mutations and args.n_mutations < len(rows):
-        rng = np.random.default_rng(args.seed)
-        pick = rng.choice(len(rows), size=args.n_mutations, replace=False)
-        rows = [rows[i] for i in sorted(pick)]
-    print(f"assay: {args.assay} | substitutions used: {len(rows)} (single)")
-    if len(rows) < 10:
-        print(f"[skip] {args.assay}: only {len(rows)} single substitutions")
-        return
 
-    model, tokenizer, device = load_model(args.model, args.device)
-    layers = list(range(len(get_transformer_layers(model))))
-    col_norms = precompute_col_norms(model, layers)
-    aa_ids = aa_token_ids(tokenizer)
-    aa_index = {aa: i for i, aa in enumerate(AA_ALPHABET)}
+def assay_shard(assay: str, override: int | None) -> int:
+    if override is not None:
+        return override
+    shard = get_assay(assay)
+    if shard is None:
+        raise SystemExit(f"unknown assay {assay!r}; pass --shard explicitly")
+    return shard.shard
 
-    from collections import defaultdict
 
-    groups = defaultdict(list)
-    for r in rows:
-        groups[len(r["muts"])].append(r)
-
-    cett_all, score_all, conf_all, correct_all = [], [], [], []
-    t0 = time.time()
-    done = 0
-    for m_count, group_rows in sorted(groups.items()):
-        for start in range(0, len(group_rows), args.batch_size):
-            batch = group_rows[start : start + args.batch_size]
-            ids_list, positions = [], []
-            for r in batch:
-                ids = list(tokenizer(r["target"], add_special_tokens=True)["input_ids"])
-                pos_list = []
-                for _wt, pos, _mut in r["muts"]:
-                    ids[pos] = tokenizer.mask_token_id
-                    pos_list.append(pos)
-                ids_list.append(ids)
-                positions.append(pos_list)
-            tokens = {
-                "input_ids": torch.tensor(ids_list),
-                "attention_mask": torch.ones(len(ids_list), len(ids_list[0]), dtype=torch.long),
-            }
-            tokens = {k: v.to(device) for k, v in tokens.items()}
-            pos_t = torch.tensor(positions, dtype=torch.long, device=device)
-            res = extract_cett_batch(model, tokens, pos_t, layers, col_norms, aa_ids)
-            logits_aa = res["logits_aa"].numpy()
-            probs = res["probs"].numpy()
-            cett_rows = res["cett"].numpy().astype(np.float16)
-            for i, r in enumerate(batch):
-                s_score = 0.0
-                for k, (wt, _pos, mut) in enumerate(r["muts"]):
-                    s_score += float(
-                        logits_aa[i * m_count + k, aa_index[mut]]
-                        - logits_aa[i * m_count + k, aa_index[wt]]
-                    )
-                score_all.append(s_score)
-                conf_all.append(float(probs[i * m_count : (i + 1) * m_count].max()))
-                correct_all.append((s_score < 0) == (r["bin"] < 0.5))
-                cett_all.append(cett_rows[i * m_count : (i + 1) * m_count].mean(axis=0))
-            done += len(batch)
-            if done % (args.batch_size * 5) < args.batch_size:
-                print(f"  scored {done}/{len(rows)} | {time.time() - t0:.0f}s")
-
-    X = np.stack(cett_all).astype(np.float32)
-    scores = np.array(score_all)
-    conf = np.array(conf_all)
-    y = (~np.array(correct_all)).astype(int)
-    if len(np.unique(y)) < 2:
-        print(f"[skip] {args.assay}: single-class labels (n={len(y)})")
-        return
-    dms = np.array([r["score"] for r in rows])
-    rho, _ = spearmanr(scores, dms)
-    print(f"\nscored {len(rows)} mutations in {time.time() - t0:.0f}s")
-    print(f"zero-shot Spearman(score, DMS_score): {rho:.4f}")
-    print(f"sign-agreement accuracy: {1 - y.mean():.4f} | incorrect rate {y.mean():.4f}")
-
-    n = len(y)
-    rng = np.random.default_rng(args.seed)
-    perm = rng.permutation(n)
-    n_test = max(1, int(round(n * args.test_frac)))
-    te = np.zeros(n, dtype=bool)
-    te[perm[:n_test]] = True
-    tr = ~te
-    au = univariate_auroc(X[tr], y[tr])
-    idx = np.argsort(au)[::-1][: args.top_k]
-    scaler = StandardScaler()
-    clf = LogisticRegression(class_weight="balanced", max_iter=2000, random_state=args.seed)
-    clf.fit(scaler.fit_transform(X[tr][:, idx]), y[tr])
-    probe_scores = np.full(n, np.nan)
-    probe_scores[te] = clf.predict_proba(scaler.transform(X[te][:, idx]))[:, 1]
-    auroc_probe = float(roc_auc_score(y[te], probe_scores[te]))
-    auroc_conf = float(roc_auc_score(y[te], -conf[te]))
-    print(f"AUROC probe (top-{args.top_k} CETT): {auroc_probe:.4f}")
-    print(f"AUROC confidence:                   {auroc_conf:.4f}")
-
+def write_summary(
+    dataset,
+    model_key: str,
+    args: argparse.Namespace,
+    summaries: list[dict[str, object]],
+    started: float,
+) -> None:
+    """Merge this run's rows into the persisted summary and recompute BH."""
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    out = RESULTS_DIR / f"vep_proteingym_{args.assay}.json"
-    out.write_text(
-        json.dumps(
+    summary_path = RESULTS_DIR / "vep_summary.json"
+    merged: dict[str, dict[str, object]] = {}
+    if summary_path.exists():
+        try:
+            existing = json.loads(summary_path.read_text())
+            for row in existing.get("assays", []):
+                if isinstance(row, dict) and row.get("assay"):
+                    merged[str(row["assay"])] = row
+        except (json.JSONDecodeError, OSError):
+            merged = {}
+    for row in summaries:
+        merged[str(row["assay"])] = row
+
+    rows = list(merged.values())
+    valid = [row for row in rows if row.get("p_value") is not None]
+    if valid:
+        q_values = bh_fdr([float(row["p_value"]) for row in valid])
+        for row, q_value in zip(valid, q_values):
+            row["q_value"] = round(float(q_value), 6)
+
+    summary = {
+        "dataset": dataset.name,
+        "dataset_repo": dataset.repo,
+        "model": model_key,
+        "top_k": args.top_k,
+        "test_frac": args.test_frac,
+        "assays": rows,
+        "wins": sum(1 for row in rows if row["delta_ci95"][0] > 0),
+        "losses": sum(1 for row in rows if row["delta_ci95"][1] < 0),
+        "ties": sum(1 for row in rows if row["delta_ci95"][0] <= 0 <= row["delta_ci95"][1]),
+        "elapsed_s": round(time.time() - started, 1),
+    }
+    summary_path.write_text(json.dumps(summary, indent=2) + "\n")
+    print(f"saved: {summary_path}")
+
+
+def aggregate_only(dataset, model_key: str, args: argparse.Namespace) -> None:
+    """Rebuild the persisted summary from saved per-assay result JSONs."""
+    started = time.time()
+    summaries: list[dict[str, object]] = []
+    for assay in selected_assays(args):
+        path = RESULTS_DIR / f"vep_proteingym_{assay}.json"
+        if not path.exists():
+            print(f"[missing] {assay}: no saved result")
+            continue
+        payload = json.loads(path.read_text())
+        if not {"delta", "delta_ci95", "p_value"} <= payload.keys():
+            print(f"[skip] {assay}: no paired interval stored")
+            continue
+        summaries.append(
             {
-                "dataset": args.dataset,
-                "assay": args.assay,
-                "n_mutations": n,
-                "spearman": round(float(rho), 4),
-                "sign_accuracy": round(float(1 - y.mean()), 4),
-                "auroc_probe": round(auroc_probe, 4),
-                "auroc_confidence": round(auroc_conf, 4),
-            },
-            indent=2,
+                "assay": assay,
+                "n_mutations": payload["n_mutations"],
+                "auroc_probe": payload["auroc_probe"],
+                "auroc_confidence": payload["auroc_confidence"],
+                "delta": payload["delta"],
+                "delta_ci95": payload["delta_ci95"],
+                "p_value": payload["p_value"],
+            }
         )
-        + "\n"
-    )
-    preds = RESULTS_DIR / f"vep_proteingym_{args.assay}.predictions.jsonl"
-    with preds.open("w") as fh:
-        for i, r in enumerate(rows):
-            mut_str = ":".join(f"{wt}{pos}{mut}" for wt, pos, mut in r["muts"])
-            fh.write(
-                json.dumps(
-                    {
-                        "mutant": mut_str,
-                        "score": round(scores[i], 4),
-                        "dms_score": round(dms[i], 4),
-                        "correct": bool(correct_all[i]),
-                        "confidence": round(conf[i], 4),
-                        "probe_score": (
-                            None if np.isnan(probe_scores[i]) else round(float(probe_scores[i]), 6)
-                        ),
-                        "split": "test" if te[i] else "train",
-                    }
-                )
-                + "\n"
+    write_summary(dataset, model_key, args, summaries, started)
+
+
+def main() -> None:
+    args = parse_args()
+    started = time.time()
+    dataset = from_config(args.dataset_config)
+    n_mutations = args.n_mutations if args.n_mutations is not None else dataset.n_mutations
+    model_key = resolve_model_key(args.model_key)
+    spec = get_spec(model_key)
+    if spec.get("adapter") != "esm":
+        raise SystemExit(
+            f"VEP scorer for adapter {spec.get('adapter')!r} is not implemented; "
+            "add a scorer in biointerp.vep and keep the runner unchanged"
+        )
+
+    if args.aggregate_only:
+        aggregate_only(dataset, model_key, args)
+        return
+
+    model, tokenizer, device = load_model(model_key, args.device)
+    scorer = Esm2Scorer(model, tokenizer, device)
+    shard_cache: dict[int, object] = {}
+    summaries: list[dict[str, object]] = []
+
+    for assay in selected_assays(args):
+        shard = assay_shard(assay, args.shard)
+        if shard not in shard_cache:
+            shard_cache[shard] = dataset.load_shard(shard)
+        frame = shard_cache[shard]
+        frame = frame[frame["DMS_id"] == assay].reset_index(drop=True)
+        rows = prepare_rows(frame, n_mutations, args.seed)
+        print(f"assay: {assay} | substitutions used: {len(rows)} (single)")
+        if len(rows) < 10:
+            print(f"[skip] {assay}: only {len(rows)} single substitutions")
+            continue
+
+        try:
+            result = run_vep(
+                rows,
+                scorer,
+                top_k=args.top_k,
+                test_frac=args.test_frac,
+                seed=args.seed,
+                batch_size=args.batch_size,
+                n_boot=args.bootstrap,
             )
-    print(f"\nsaved: {out}")
-    print(f"saved: {preds}")
+        except ValueError as exc:
+            print(f"[skip] {assay}: {exc}")
+            continue
+
+        payload = {
+            "dataset": dataset.name,
+            "dataset_repo": dataset.repo,
+            "model": model_key,
+            "assay": assay,
+            "n_mutations": result["n_mutations"],
+            "spearman": result["spearman"],
+            "sign_accuracy": result["sign_accuracy"],
+            "auroc_probe": result["auroc_probe"],
+            "auroc_confidence": result["auroc_confidence"],
+            "delta": result["delta"],
+            "delta_ci95": result["delta_ci95"],
+            "p_value": result["p_value"],
+            "top_k": args.top_k,
+            "test_frac": args.test_frac,
+        }
+        out = RESULTS_DIR / f"vep_proteingym_{assay}.json"
+        out.write_text(json.dumps(payload, indent=2) + "\n")
+
+        predictions_path = RESULTS_DIR / f"vep_proteingym_{assay}.predictions.jsonl"
+        with predictions_path.open("w") as handle:
+            for index, row in enumerate(rows):
+                mutation = ":".join(
+                    f"{wild_type}{position}{mutant}" for wild_type, position, mutant in row["muts"]
+                )
+                probe_score = result["probe_scores"][index]
+                handle.write(
+                    json.dumps(
+                        {
+                            "mutant": mutation,
+                            "score": round(float(result["scores"][index]), 4),
+                            "dms_score": round(float(result["dms"][index]), 4),
+                            "correct": bool(result["y"][index] == 0),
+                            "confidence": round(float(result["confidence"][index]), 4),
+                            "probe_score": (
+                                None if np.isnan(probe_score) else round(float(probe_score), 6)
+                            ),
+                            "split": ("test" if result["test_mask"][index] else "train"),
+                        }
+                    )
+                    + "\n"
+                )
+
+        summaries.append(
+            {
+                "assay": assay,
+                "n_mutations": result["n_mutations"],
+                "auroc_probe": result["auroc_probe"],
+                "auroc_confidence": result["auroc_confidence"],
+                "delta": result["delta"],
+                "delta_ci95": result["delta_ci95"],
+                "p_value": result["p_value"],
+            }
+        )
+        print(
+            f"AUROC probe {result['auroc_probe']:.4f} | "
+            f"confidence {result['auroc_confidence']:.4f} | "
+            f"delta {result['delta']:+.4f} {result['delta_ci95']}"
+        )
+        write_summary(dataset, model_key, args, summaries, started)
+
+    write_summary(dataset, model_key, args, summaries, started)
 
 
 if __name__ == "__main__":

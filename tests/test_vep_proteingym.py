@@ -44,6 +44,8 @@ def test_main_writes_metrics_and_predictions(monkeypatch, tmp_path):
             "vep",
             "--assay",
             "TEST",
+            "--shard",
+            "0",
             "--n-mutations",
             str(len(frame)),
             "--test-frac",
@@ -89,8 +91,40 @@ def test_main_skips_assay_with_too_few_substitutions(monkeypatch, tmp_path):
     monkeypatch.setattr("huggingface_hub.hf_hub_download", lambda *a, **k: "unused.parquet")
     monkeypatch.setattr(pd, "read_parquet", lambda path: frame)
     monkeypatch.setattr(exp, "RESULTS_DIR", tmp_path)
-    monkeypatch.setattr(sys, "argv", ["vep", "--assay", "TEST", "--n-mutations", "0"])
+    monkeypatch.setattr(
+        sys, "argv", ["vep", "--assay", "TEST", "--shard", "0", "--n-mutations", "0"]
+    )
 
     exp.main()
 
     assert not (tmp_path / "vep_proteingym_TEST.json").exists()
+
+
+def test_aggregate_only_rebuilds_summary_from_saved_jsons(monkeypatch, tmp_path):
+    monkeypatch.setattr(exp, "RESULTS_DIR", tmp_path)
+    for assay in ("A", "B"):
+        (tmp_path / f"vep_proteingym_{assay}.json").write_text(
+            json.dumps(
+                {
+                    "assay": assay,
+                    "n_mutations": 100,
+                    "auroc_probe": 0.8,
+                    "auroc_confidence": 0.6,
+                    "delta": 0.2,
+                    "delta_ci95": [0.1, 0.3],
+                    "p_value": 0.01,
+                }
+            )
+        )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["vep", "--aggregate-only", "--assays", "A,B,C"],
+    )
+
+    exp.main()
+
+    summary = json.loads((tmp_path / "vep_summary.json").read_text())
+    assert [row["assay"] for row in summary["assays"]] == ["A", "B"]
+    assert summary["wins"] == 2
+    assert all("q_value" in row for row in summary["assays"])
