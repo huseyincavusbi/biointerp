@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from biointerp.ablation import (
     equalize_norms,
@@ -6,6 +7,7 @@ from biointerp.ablation import (
     group_by_layer,
     random_sets,
     select_top_bottom,
+    summarize_ablation,
 )
 
 
@@ -40,3 +42,19 @@ def test_equalize_norms_uses_shared_target():
     scaled = equalize_norms(vectors, target_norm=10.0)
     assert global_norm(scaled) == 1.0 * 10.0
     assert np.allclose(scaled[0], [6.0, 8.0])
+
+
+def test_summarize_ablation_uses_degradation_direction():
+    rows = [
+        {"condition": "baseline", "accuracy": 0.45, "p_true": 0.40},
+        {"condition": "top", "accuracy": 0.44, "p_true": 0.36},
+        {"condition": "bottom", "accuracy": 0.48, "p_true": 0.42},
+        {"condition": "random-0", "accuracy": 0.45, "p_true": 0.39},
+        {"condition": "random-1", "accuracy": 0.46, "p_true": 0.40},
+        {"condition": "random-2", "accuracy": 0.45, "p_true": 0.395},
+    ]
+    summary = summarize_ablation(rows, equal_norm_target=4.0)
+    assert summary["accuracy_top_drop"] == pytest.approx(0.01)
+    assert summary["accuracy_top_exceeds_random_p95"] is True
+    assert summary["p_true_top_exceeds_random_p95"] is True
+    assert summary["metrics_supported"] == 2

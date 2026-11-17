@@ -21,6 +21,7 @@ from biointerp.ablation import (
     group_by_layer,
     random_sets,
     select_top_bottom,
+    summarize_ablation,
 )
 from biointerp.core import DEFAULT_FASTA, DEFAULT_NPZ, RESULTS_DIR, load_sequences
 from biointerp.esm import (
@@ -48,6 +49,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--device", default=None)
     p.add_argument("--out", default=str(RESULTS_DIR / "ablation_controls.json"))
+    p.add_argument("--figure", default=str(RESULTS_DIR / "ablation_controls.png"))
+    p.add_argument(
+        "--summarize-only",
+        action="store_true",
+        help="recompute the summary and figure from an existing result JSON",
+    )
     return p.parse_args()
 
 
@@ -96,9 +103,7 @@ def mean_activations(
 
         def hook_factory(layer):
             def hook(module, inputs, output):
-                sums[layer] += (
-                    inputs[0][b_idx, positions].squeeze(1).sum(dim=0).float().cpu()
-                )
+                sums[layer] += inputs[0][b_idx, positions].squeeze(1).sum(dim=0).float().cpu()
                 return output
 
             return hook
@@ -153,9 +158,7 @@ def run_condition(
                 return hook
 
             handles.append(
-                get_ffn_output_proj(blocks[layer]).register_forward_hook(
-                    make_hook(local_t, mean_t)
-                )
+                get_ffn_output_proj(blocks[layer]).register_forward_hook(make_hook(local_t, mean_t))
             )
 
     try:
@@ -186,9 +189,45 @@ def run_condition(
     }
 
 
+def plot_ablation(path: str, rows: list[dict[str, object]]) -> None:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    conditions = [str(row["condition"]) for row in rows]
+    figure, axes = plt.subplots(1, 2, figsize=(11, 4.2))
+    for axis, metric, label in (
+        (axes[0], "accuracy", "masked accuracy"),
+        (axes[1], "p_true", "p(true)"),
+    ):
+        values = [float(row[metric]) for row in rows]
+        axis.bar(range(len(rows)), values, color="steelblue")
+        baseline = next(float(row[metric]) for row in rows if row["condition"] == "baseline")
+        axis.axhline(baseline, color="black", linestyle="--", linewidth=1)
+        axis.set_xticks(range(len(rows)))
+        axis.set_xticklabels(conditions, rotation=35, ha="right", fontsize=8)
+        axis.set_ylabel(label)
+        axis.set_ylim(min(values) - 0.02, max(values) + 0.02)
+    figure.tight_layout()
+    figure.savefig(path, dpi=150)
+    plt.close(figure)
+
+
 def main() -> None:
     args = parse_args()
     started = time.time()
+
+    if args.summarize_only:
+        payload = json.loads(Path(args.out).read_text())
+        target_norm = float(payload["summary"]["equal_norm_target"])
+        summary = summarize_ablation(payload["conditions"], target_norm)
+        payload["summary"] = summary
+        Path(args.out).write_text(json.dumps(payload, indent=2) + "\n")
+        plot_ablation(args.figure, payload["conditions"])
+        print(f"summary: {summary}")
+        print(f"wrote: {args.out}")
+        return
     cett, y, protein, train, test = load_split(args.npz, args.assignments)
     sequences = load_sequences(args.fasta)
     if len(sequences) < len(protein):
@@ -211,9 +250,7 @@ def main() -> None:
     model, tokenizer, device = load_model(model_key, args.device)
     layers = list(range(len(get_transformer_layers(model))))
     config = getattr(model, "config", None)
-    intermediate = int(
-        getattr(config, "intermediate_size", None) or model.intermediate_size
-    )
+    intermediate = int(getattr(config, "intermediate_size", None) or model.intermediate_size)
     aa_ids = aa_token_ids(tokenizer)
     aa_t = torch.tensor(aa_ids, device=device)
     aa_index = {aa: index for index, aa in enumerate(AA_ALPHABET)}
@@ -268,21 +305,12 @@ def main() -> None:
             args.seed,
             intervention,
         )
-        rows.append({"condition": name, "n_neurons": 0 if intervention is None else args.k, **result})
+        rows.append(
+            {"condition": name, "n_neurons": 0 if intervention is None else args.k, **result}
+        )
         print(f"{name:12s} acc {result['accuracy']:.4f} | p(true) {result['p_true']:.4f}")
 
-    random_rows = [row for row in rows if row["condition"].startswith("random-")]
-    random_acc = np.asarray([row["accuracy"] for row in random_rows])
-    top_row = next(row for row in rows if row["condition"] == "top")
-    bottom_row = next(row for row in rows if row["condition"] == "bottom")
-    summary = {
-        "top_accuracy": top_row["accuracy"],
-        "bottom_accuracy": bottom_row["accuracy"],
-        "random_mean": round(float(random_acc.mean()), 4),
-        "random_p95": round(float(np.percentile(random_acc, 95)), 4),
-        "top_exceeds_random_p95": bool(top_row["accuracy"] > np.percentile(random_acc, 95)),
-        "equal_norm_target": round(float(target_norm), 4),
-    }
+    summary = summarize_ablation(rows, target_norm)
 
     result = {
         "meta": metadata(),
@@ -297,6 +325,7 @@ def main() -> None:
     }
     out = Path(args.out)
     out.write_text(json.dumps(result, indent=2) + "\n")
+    plot_ablation(args.figure, rows)
     print(f"summary: {summary}")
     print(f"wrote: {out}")
 
