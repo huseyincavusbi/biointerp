@@ -1,10 +1,13 @@
 import numpy as np
+import pytest
 
 from biointerp.steering import (
     Condition,
     build_steer_map,
+    match_by_bins,
     negate_direction,
     parse_conditions,
+    random_neuron_direction,
     summarize_conditions,
     unit_random_direction,
 )
@@ -66,3 +69,42 @@ def test_summarize_conditions_reports_deltas():
         ]
     )
     assert summary["delta_vs_baseline"]["top"] == 0.2
+
+
+def test_random_neuron_direction_is_sparse_and_norm_preserving():
+    base = np.array([3.0, 4.0, 1.0, 2.0])
+    sparse = random_neuron_direction(base, n_neurons=2, seed=0)
+    assert np.count_nonzero(sparse) <= 2
+    assert np.linalg.norm(sparse) == pytest.approx(np.linalg.norm(base))
+
+
+def test_build_steer_map_random_neurons():
+    base = np.array([3.0, 4.0, 1.0, 2.0])
+    condition = Condition("rn", "random_neurons", layer=0, alpha=0.5, n_neurons=2)
+    mapping = build_steer_map(condition, {0: base}, {0: 10.0}, hidden_dim=4, seed=0)
+    assert mapping is not None
+    vector, alpha = mapping[0]
+    assert np.count_nonzero(vector) <= 2
+    assert alpha > 0
+
+
+def test_match_by_bins_matches_common_strata():
+    baseline = ["A" * 10, "C" * 10, "D" * 10]
+    condition = ["A" * 10, "C" * 10]
+    base_index, cond_index = match_by_bins(baseline, condition, n_bins=2)
+    assert len(base_index) == len(cond_index)
+    assert len(cond_index) >= 1
+    for left, right in zip(base_index, cond_index):
+        assert len(baseline[left]) == len(condition[right])
+
+
+def test_summarize_conditions_accepts_metric_name():
+    summary = summarize_conditions(
+        [
+            {"condition": "baseline", "mean_plddt": 0.8},
+            {"condition": "top", "mean_plddt": 0.9},
+        ],
+        metric="mean_plddt",
+    )
+    assert summary["delta_vs_baseline"]["top"] == pytest.approx(0.1)
+    assert summary["metric"] == "mean_plddt"
