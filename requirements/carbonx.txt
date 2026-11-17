@@ -1,0 +1,7 @@
+# Isolated environment for Carbon-X only.
+# Do not install these into the main project environment: the main lock uses
+# transformers 4.57, while Carbon-X requires transformers >= 5.
+transformers>=5
+torch>=2.0
+accelerate>=1.0
+huggingface-hub>=0.20
