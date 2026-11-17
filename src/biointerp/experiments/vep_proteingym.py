@@ -35,6 +35,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--bootstrap", type=int, default=1000)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--device", default=None)
+    p.add_argument(
+        "--aggregate-only",
+        action="store_true",
+        help="rebuild the summary from saved per-assay JSONs without a model",
+    )
     return p.parse_args()
 
 
@@ -108,6 +113,33 @@ def write_summary(
     print(f"saved: {summary_path}")
 
 
+def aggregate_only(dataset, model_key: str, args: argparse.Namespace) -> None:
+    """Rebuild the persisted summary from saved per-assay result JSONs."""
+    started = time.time()
+    summaries: list[dict[str, object]] = []
+    for assay in selected_assays(args):
+        path = RESULTS_DIR / f"vep_proteingym_{assay}.json"
+        if not path.exists():
+            print(f"[missing] {assay}: no saved result")
+            continue
+        payload = json.loads(path.read_text())
+        if not {"delta", "delta_ci95", "p_value"} <= payload.keys():
+            print(f"[skip] {assay}: no paired interval stored")
+            continue
+        summaries.append(
+            {
+                "assay": assay,
+                "n_mutations": payload["n_mutations"],
+                "auroc_probe": payload["auroc_probe"],
+                "auroc_confidence": payload["auroc_confidence"],
+                "delta": payload["delta"],
+                "delta_ci95": payload["delta_ci95"],
+                "p_value": payload["p_value"],
+            }
+        )
+    write_summary(dataset, model_key, args, summaries, started)
+
+
 def main() -> None:
     args = parse_args()
     started = time.time()
@@ -120,6 +152,10 @@ def main() -> None:
             f"VEP scorer for adapter {spec.get('adapter')!r} is not implemented; "
             "add a scorer in biointerp.vep and keep the runner unchanged"
         )
+
+    if args.aggregate_only:
+        aggregate_only(dataset, model_key, args)
+        return
 
     model, tokenizer, device = load_model(model_key, args.device)
     scorer = Esm2Scorer(model, tokenizer, device)
