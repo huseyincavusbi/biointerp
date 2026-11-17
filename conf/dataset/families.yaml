@@ -1,0 +1,6 @@
+name: families
+path: results/families.tsv
+columns:
+  protein_id: protein_id
+  family: family
+min_members: 5
