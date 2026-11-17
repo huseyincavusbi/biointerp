@@ -13,3 +13,8 @@ conditions:
     direction: random
     layer: 24
     alpha: 0.3
+  - name: random_neurons
+    direction: random_neurons
+    layer: 24
+    alpha: 0.3
+    n_neurons: 25
