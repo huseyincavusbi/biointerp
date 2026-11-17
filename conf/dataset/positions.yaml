@@ -1,0 +1,14 @@
+name: positions
+path: results/positions.parquet
+columns:
+  protein_id: protein_id
+  position: position
+  length: length
+  relative_position: relative_position
+  error: error
+  plddt: plddt
+  idr: idr
+  conservation: conservation
+  cett_score: cett_score
+predictors: [cett_score, plddt, idr, conservation, length, relative_position]
+test_predictor: idr
