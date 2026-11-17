@@ -50,6 +50,8 @@ def test_main_runs_small_condition_matrix(monkeypatch, tmp_path):
             "4",
             "--out",
             str(out),
+            "--figure",
+            str(tmp_path / "ablation.png"),
         ],
     )
 
@@ -58,6 +60,8 @@ def test_main_runs_small_condition_matrix(monkeypatch, tmp_path):
     result = json.loads(out.read_text())
     assert result["k"] == 3
     assert len(result["conditions"]) == 5
-    assert "top_accuracy" in result["summary"]
-    assert "random_p95" in result["summary"]
+    assert "accuracy_top_drop" in result["summary"]
+    assert "accuracy_random_p95_drop" in result["summary"]
+    assert "metrics_supported" in result["summary"]
+    assert (tmp_path / "ablation.png").exists()
     assert "meta" in result
