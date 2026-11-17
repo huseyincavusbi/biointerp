@@ -1,0 +1,15 @@
+conditions:
+  - name: baseline
+    direction: none
+  - name: true_positive
+    direction: true
+    layer: 24
+    alpha: 0.3
+  - name: true_negative
+    direction: negative
+    layer: 24
+    alpha: 0.3
+  - name: random_direction
+    direction: random
+    layer: 24
+    alpha: 0.3

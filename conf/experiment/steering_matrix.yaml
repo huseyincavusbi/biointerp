@@ -1,0 +1,3 @@
+module: biointerp.experiments.steering_matrix
+model_key: false
+args: ["--calib-seqs", "4", "--eval-seqs", "3", "--n-steps", "60"]
