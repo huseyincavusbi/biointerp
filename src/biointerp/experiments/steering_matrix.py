@@ -56,7 +56,11 @@ def parse_args() -> argparse.Namespace:
 
 
 def plot_conditions(path: str, rows: list[dict[str, object]], metric: str) -> None:
-    import matplotlib
+    try:
+        import matplotlib
+    except ImportError:
+        print("matplotlib not installed; skipping figure")
+        return
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt

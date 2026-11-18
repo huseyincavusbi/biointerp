@@ -190,7 +190,11 @@ def run_condition(
 
 
 def plot_ablation(path: str, rows: list[dict[str, object]]) -> None:
-    import matplotlib
+    try:
+        import matplotlib
+    except ImportError:
+        print("matplotlib not installed; skipping figure")
+        return
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt

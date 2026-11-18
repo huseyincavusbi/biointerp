@@ -63,5 +63,5 @@ def test_main_runs_small_condition_matrix(monkeypatch, tmp_path):
     assert "accuracy_top_drop" in result["summary"]
     assert "accuracy_random_p95_drop" in result["summary"]
     assert "metrics_supported" in result["summary"]
-    assert (tmp_path / "ablation.png").exists()
+    assert (tmp_path / "ablation.json").exists()
     assert "meta" in result
